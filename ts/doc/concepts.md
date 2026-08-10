@@ -1,164 +1,197 @@
 # Concepts
 
-Background on how the ZON plugin is put together, and why. This is
-understanding-oriented reading — for steps see the
-[tutorial](tutorial.md) and [how-to guide](guide.md), and for exact
-signatures and syntax see the [reference](reference.md).
+This document explains how `@tabnas/gbnf` works and why it is built the
+way it is. For the API see [reference.md](reference.md); for the places
+where it and llama.cpp part company see [known-gaps.md](known-gaps.md).
 
-## A grammar plugin on a shared engine
+## What the compiler is, and what the engine is
 
-The plugin has no parser of its own. It is a thin layer on a stack of
-three pieces:
+`@tabnas/gbnf` is a **compiler**, not a parser. It reads GBNF source and
+emits a tabnas `GrammarSpec` — a declarative description of rules,
+tokens, lexer settings, and AST-building actions. The actual parsing is
+done by the **tabnas engine** (`@tabnas/parser`), a push-down
+recursive-descent parser:
 
-- the **Tabnas engine** (`@tabnas/parser`) — a rule-based parser over a
-  configurable, matcher-based lexer,
-- the **relaxed-JSON grammar** (`@tabnas/jsonic`) — the rules and
-  helper actions (`@array$`, the `val`/`map`/`list`/`pair`/`elem` rule
-  set) that turn tokens into objects and arrays, and
-- **this plugin** (`@tabnas/zon`) — the option overrides, custom lex
-  matchers, and small grammar overlay that retune that stack to read
-  Zig anonymous-struct syntax instead of JSON.
+```
+GBNF source ──gbnfConvert──▶ GrammarSpec ──tn.grammar──▶ engine ──parse──▶ AST
+```
 
-Because the engine is configuration-driven, ZON support is mostly an
-options change plus a handful of alternates — not a new parser. The
-plugin embeds the canonical grammar text (from the repo-root
-`zon-grammar.jsonic`) as a string, parses it with a throwaway jsonic
-instance to get a grammar object, attaches its option overrides to that
-object, and hands the whole thing to the engine atomically via
-`tn.grammar(grammarDef, { rule: { alt: { g: 'zon' } } })`.
+The compiler decides *what* grammar the engine should run; the engine
+decides *whether a given input matches* and *what tree to build*. That
+separation is why a compiled grammar can be serialised, shipped, and
+re-loaded on a bare engine in another process — the spec is data.
 
-## ZON is not a superset of JSON
+## Three packages, one pipeline
 
-JSON and ZON share scalars but differ in structure:
+This package holds only the notation:
 
-| | JSON / jsonic | ZON |
-|---|---|---|
-| Open a map | `{` | `.{` (followed by `.field =`) |
-| Open a list | `[` | `.{` (otherwise) |
-| Close | `}` / `]` | `}` |
-| Key/value separator | `:` | `=` |
-| Keys | strings | `.identifier` |
-| Strings | `"` `'` `` ` `` | `"` only |
-| Comments | `#` `//` `/* */` | `//` only |
+```
+GBNF text ──parseGbnf──▶ Grammar IR ──emitGrammarSpec──▶ GrammarSpec
+          └─ @tabnas/gbnf ─┘        └──── @tabnas/bnf ────┘
+```
 
-The plugin makes those swaps by **disabling** what JSON allows and
-**adding** what ZON needs, rather than accepting both. That is a
-deliberate choice: a `build.zig.zon` file that accidentally used JSON
-braces should be a clear error, not a silent success.
+`@tabnas/bnf` is the shared half, and it parses no syntax at all. It
+defines an intermediate representation — a `Grammar` of `Production`s
+over `Element`s — and everything hard about compiling one: desugaring
+repetition into helper rules, eliminating left recursion, rewriting tail
+repeats into same-depth loops, the probe/rewind dispatcher for prefixes
+that exceed the engine's bounded lookahead, lifting single-literal rules
+into named lexer tokens, allocating token names, first-set analysis, and
+chaining multi-reference alternatives through `$stepN` rules.
 
-## The four mechanisms
+`@tabnas/abnf` and `@tabnas/ebnf` are the other two front-ends onto the
+same IR. Writing this one meant writing a parser for GBNF that produces
+`Production[]`, and nothing else — plus the lexer settings a scannerless
+notation needs, which are this front-end's business because they are a
+property of the notation rather than of the IR.
 
-The plugin reshapes the stack with four cooperating mechanisms, all
-applied together through one `GrammarSpec`:
+## Reading GBNF with tabnas
 
-1. **Custom lex matchers** own the `.`-prefixed and Zig-specific
-   tokens. They run ahead of the fixed-token matcher (high `order`
-   values) so they reliably claim their input:
-   - `.{` peeks ahead and emits `#OB` (struct) when followed by
-     `<ws>.ident<ws>=`, or `#OS` (tuple) otherwise.
-   - `.identifier`, and `.@"any name"`, emit `#TX` whose `val` is the
-     name with the dot stripped, and whose `use.zonEnum` flag marks it
-     for optional enum-tag wrapping.
-   - `\\`-prefixed lines emit one `#ST` string token with the joined
-     content. Zig lexes the whole run as one token, so blank lines
-     inside it continue the literal.
-   - char literals (`'x'`, `'\n'`, `'\xNN'`, `'\u{...}'`) emit a `#NR`
-     number token whose value is a one-char string or the code point,
-     per `charAsNumber`.
-   - numeric literals emit `#NR` from a matcher that reproduces Zig's
-     literal grammar exactly — jsonic's own number lexer is switched
-     off, because relaxed-JSON numbers (`+1`, `.5`, `0123`, `1__0`) are
-     not ZON numbers.
-   - `//!` and `///` fail the lex: they are Zig doc comments, which ZON
-     rejects.
+The meta-grammar — the grammar that reads GBNF source — is itself a
+tabnas grammar, written as a table of `open`/`close` rule alternatives
+in `src/converter.ts`. It is small:
 
-2. **Token remapping.** `#CL` is rebound from `:` to `=`; the default
-   char mappings for `#OB`, `#OS`, and `#CS` are dropped to `null`, so
-   a stray `{`, `[`, or `]` produces a syntax error instead of silently
-   opening a structure. The default jsonic text matcher is turned off,
-   since identifiers only ever appear as `.ident` / `.@"..."` and are
-   owned by the custom matcher.
+```
+gbnf  = prod*
+prod  = NM '::=' alts
+alts  = seq ('|' seq)*
+seq   = elem*
+elem  = atom POST?
+atom  = NM | GS | CC | DOT | TOK | '(' alts ')'
+```
 
-3. **Key-set restriction.** The `KEY` token set is narrowed to `#TX`
-   alone, so only an identifier (not a number or a quoted string) can
-   sit on the left of `=`.
+Two decisions keep it that small.
 
-4. **Grammar overlay.** A few alternates are prepended to `val`,
-   `list`, `elem`, and `pair`, plus a before-close guard on `pair` that
-   rejects a repeated field name (Zig does too). They swap the list terminator from the
-   default `#CS` to `#CB`, seed the list node with `@array$`, and
-   accept a trailing comma before `}`. This is the only part written in
-   grammar text; everything else is options.
+**Free-form terminals are lexed whole, and eagerly.** A string literal,
+a character class, a repetition brace, a tokenizer terminal and a rule
+name are each one `match.token` regex flagged `eager$`, which opts the
+matcher out of the lexer's token-column gate. GBNF's terminals are
+distinguished by their first character — `"`, `[`, `{`, `<`, `!` and
+word characters are each claimed by exactly one matcher — so
+tokenisation does not need to know what the parser expects. The ABNF
+front-end spends a dozen alternatives on two-token `s:` patterns whose
+only job is to widen the token column at the position after a rule name;
+none of that is needed here.
 
-The `{ rule: { exclude: 'jsonic,imp' } }` override also removes
-jsonic's implicit maps/lists, top-level commas, and path-dive
-extensions, and `{ rule: { start: 'val' } }` makes a single value the
-entry rule.
+**A postfix run is one token.** `#POST` matches `*`, `+`, `?` and
+`{m,n}` in a run, so `elem` is a two-alternative rule rather than a
+loop. A close-state loop in tabnas needs a `p:`/`r:` on every iteration,
+and there is no child rule to push for a `*`. Lexing the run instead
+moves the (rare, but legal) chaining of `x*?` into a five-line decoder.
 
-## Struct vs tuple disambiguation
+Rule boundaries are found with a two-token `NM ::=` lookahead. That is
+exact — `::=` can only follow a name at the start of a production — but
+it is line-insensitive, where llama.cpp treats a top-level newline as
+the end of a rule. See [known-gaps.md](known-gaps.md#4-line-breaks-are-not-significant-here-and-are-in-llamacpp).
 
-ZON uses one opener, `.{`, for both maps and lists. The engine's parser
-allows only two tokens of lookahead, which is not enough to tell a
-struct from a tuple by grammar alone (you would have to see an
-arbitrary distance ahead to find the first `=`).
+## Terminals are re-emitted, not passed through
 
-So the decision is pushed down into the lexer. When the `.{` matcher
-fires, it scans past the opening brace, whitespace, and `//` comments,
-then checks for `.ident` followed by `=`. If found, it emits `#OB`
-(struct); otherwise `#OS` (tuple). The grammar therefore only ever sees
-an already-classified open token, and a two-token-lookahead rule set is
-enough. This is why `.{}` parses as an **empty list** rather than an
-empty map: with nothing inside, there is no `.field =` to mark it as a
-struct.
+A character class looks like a regex, and it is tempting to hand `[a-z]`
+straight to `new RegExp`. The front-end does not: it decodes the class
+into code points and writes every member back as a `\uXXXX` (or
+`\u{…}`) escape.
 
-## Enum literals: one token, two roles
+The reason is that GBNF and JavaScript agree on `[`, `]`, `^` and `-`
+and on nothing else. A verbatim copy would hand JS a pattern in which
+`\d`, `\b`, `\w` or a stray `$` mean something GBNF never said, and
+GBNF's own escape set (`\[`, `\]`, `\UXXXXXXXX`) is not JS's. Writing
+each member back as a fixed-width escape has exactly one meaning inside
+a character class and needs no further quoting.
 
-A bare `.foo` token (`#TX`) is valid in two positions. Before `=` it is
-a key (the field name `foo`); in value position it is an enum literal
-(the value `'foo'`). Because `#TX` is a member of both the `KEY` and
-`VAL` token sets, the parser picks the right interpretation purely by
-context — no grammar branching is needed.
+String literals get the same treatment for the same reason: they are
+lexed raw and decoded here, rather than by the engine's string matcher,
+because GBNF's escapes are its own.
 
-When `enumTag` is set, an enum literal in value position must be
-wrapped as `{ [enumTag]: name }`. The relaxed-JSON grammar already owns
-the value-close phase via `@val-bc/replace`, and once a phase is
-"replaced" the engine suppresses any `/prepend` on it. So the wrapping
-runs in the *after-close* phase (`@val-ac`): it checks whether the
-closed value came from a token carrying the `zonEnum` flag, and if so
-rebuilds the node as the tagged object. Keys are unaffected, because
-they are consumed in key position, not as values.
+## Case sensitivity is the flag that matters
 
-## Why reuse one instance
+GBNF's string literals are case-**sensitive**. ABNF's, by RFC 5234
+default, are case-**insensitive**. The IR carries the intent
+(`caseSensitive: true`) and the shared emitter lowers it: a sensitive
+literal becomes a plain `fixed.token`, an exact byte match; an
+insensitive one becomes an `i`-flagged, `eager$` regex.
 
-Building the ZON grammar — parsing the embedded grammar text, applying
-the option overlay, wiring the custom matchers — dominates the cost of
-a parse; the parse itself, on a typical small ZON value, is cheap by
-comparison. The instance is stateless across parses (each parse builds
-its own context and only reads instance state), so the right pattern is
-to build the engine once and reuse it for every input. The repo's
-performance test guards exactly this: reuse stays linear, and the
-rebuild-per-parse anti-pattern is many times slower.
+Getting that backwards is silent — the grammar still compiles, still
+parses its own examples, and quietly accepts `TRUE` for `"true"`. It is
+asserted in the IR and again through a parse, in
+`ts/test/gbnf.test.js`.
 
-## Accepted vs rejected — edge cases
+## Scannerless notation, tokenising engine
 
-- `.{}` → `[]`. An empty literal is a list, not a map.
-- `{ a = 1 }` → **error**. Bare `{` is not a ZON opener; it was
-  removed.
-- `'A'` → `'A'` by default, `65` with `charAsNumber: true`. The single
-  quote is a char literal, not a string delimiter.
-- `"a\\b"` → `'a\b'`. Double quotes are the only string delimiter, with
-  Zig escapes; an unknown escape is an error.
-- `.red` as a value → `'red'`, or `{ tag: 'red' }` with `enumTag`.
-- `.red` as a key (`.red = 1`) → key `red`; `enumTag` never applies to
-  keys.
-- Trailing comma before `}` → accepted in both structs and tuples.
-- `//` comment → discarded; `#` and `/* */` are **not** comments in
-  ZON.
+This is the central tension in the design, and the source of most of
+what is in [known-gaps.md](known-gaps.md).
 
-## Relationship to the Go port
+GBNF has no lexical level. `[0-9]+` is *characters*, not a number token;
+`" "` is a space the grammar asked for, not whitespace to be skipped.
+The tabnas engine, by contrast, is built around a configurable lexer:
+by default it recognises numbers, strings, barewords, comments and
+whitespace, and the parser works on the token stream that produces.
 
-The plugin ships in two implementations — this TypeScript one and a Go
-port — built from the same canonical `zon-grammar.jsonic`. The
-TypeScript version is the reference. For the Go API shape, value types,
-and any accepted differences, see
-[../../go/doc/concepts.md](../../go/doc/concepts.md).
+The front-end closes most of that gap by configuration. The emitted spec
+carries an empty ignore set and switches off every default matcher, so
+what remains is the grammar's own fixed tokens (its literals) and match
+tokens (its classes). An input character the grammar never mentioned
+becomes a lex error rather than a silently-skipped one, and `tn.parse()`
+is a faithful acceptance test.
+
+What configuration cannot close is **overlap**. Two GBNF terminals may
+freely match the same character — `[0-9]` and `[0-9a-fA-F]`, or
+`["\\bfnrt]` and the literal `"\""`. A tokeniser must choose one, and it
+chooses before the parser has said which it wanted. The engine's answer
+is rule-directed lexing: a class matcher only fires where the active
+rule names it. That resolves overlap, at the cost of making a class
+invisible where the rule does *not* name it — which is exactly what
+happens at the end of a repetition.
+
+The front-end takes the one out that is provably safe: when a grammar's
+classes are pairwise disjoint *and* no class holds the first character
+of a literal, overlap cannot arise, so the gate is dropped and every
+character has exactly one possible token. When those conditions do not
+hold, rule-directed lexing stays, and some grammars compile but cannot
+parse. Mis-tokenising can only make a parse **fail**, never wrongly
+succeed, which is why this is a usability limit rather than a
+correctness one.
+
+## Why tokenizer-token terminals are refused
+
+`<think>`, `<[1000]>` and `!</think>` are a newer GBNF extension that
+matches entries of the sampler's **vocabulary**. Which text an entry
+covers is decided by the model's tokenizer, so the same grammar denotes
+different languages on different models.
+
+A text parser has no tokenizer, and the two available approximations are
+both wrong in a way that would go unnoticed: treating `<think>` as the
+literal text `"<think>"` accepts strings the sampler would refuse, and
+dropping it accepts strings with nothing there at all. Either silently
+changes the accepted language.
+
+So the syntax layer accepts them — a grammar containing one is not a
+*syntax* error, and the diagnostic can say so and name the rule — and a
+validation pass rejects them with `GbnfCompileError`. An offline
+validator that quietly disagrees with the sampler it is validating for
+is worse than one that says "I cannot check this".
+
+## Where validation lives
+
+Every semantic check — the `root` requirement, undefined references,
+tokenizer terminals — runs in `parseGbnf`, before the IR reaches
+`@tabnas/bnf`.
+
+That ordering is not cosmetic. The shared compiler maps an undefined
+`TX`, `NR`, `ST` or `VL` reference onto the engine's own built-in lexer
+tokens, which is right for ABNF (where a grammar may lean on the lexer)
+and wrong for GBNF (where those are ordinary rule names and an undefined
+one is a typo). Checking first means the typo is reported as a typo.
+
+## What is not here yet
+
+- **A Go port.** The front-end compiles to a pure-data spec, so Go can
+  already load a grammar compiled by this package; it cannot read
+  `.gbnf` text until the notation parser is ported.
+- **A renderer.** Engine → GBNF export, the mirror of
+  `@tabnas/debug`'s ABNF round-trip, would turn any tabnas grammar into
+  a constraint file for a sampler — and, combined with `@tabnas/abnf`,
+  give an ABNF ⇄ GBNF bridge. It belongs beside the ABNF renderer in
+  `@tabnas/debug`.
+- **A validator CLI.** `gbnf-check <grammar> <sample…>` is a thin
+  wrapper over `gbnfConvert` plus `tn.parse`, and is the shape most
+  people asking for offline GBNF validation actually want.

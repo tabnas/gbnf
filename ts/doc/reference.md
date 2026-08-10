@@ -1,315 +1,279 @@
 # Reference
 
-The complete public surface of `@tabnas/zon` (TypeScript): exports,
-the parse entry, the two options, and the exact ZON syntax accepted.
-For a guided introduction see the [tutorial](tutorial.md); for task
-recipes see the [how-to guide](guide.md); for how it works see
-[concepts](concepts.md).
+Complete API surface and supported syntax for `@tabnas/gbnf`. For an
+introduction see [tutorial.md](tutorial.md); for usage recipes see
+[guide.md](guide.md); for the divergences from llama.cpp see
+[known-gaps.md](known-gaps.md).
 
-## Package
+All exports come from the package root:
 
-```bash
-npm install @tabnas/parser @tabnas/jsonic @tabnas/zon
+```js ignore
+const {
+  VERSION,
+  gbnf, gbnfConvert, toSpec, parseGbnf,
+  emitGrammarSpec, eliminateLeftRecursion,
+  gbnfRules,
+  GbnfParseError, GbnfCompileError,
+} = require('@tabnas/gbnf')
 ```
 
-| | |
-|---|---|
-| Package | `@tabnas/zon` |
-| Module type | CommonJS (`main: dist/zon.js`, types `dist/zon.d.ts`) |
-| Peer deps | `@tabnas/parser` >= 2, `@tabnas/jsonic` >= 2 |
-| Engine | `@tabnas/parser` (Tabnas) |
-| Underlying grammar | `@tabnas/jsonic` |
-
-## Exports
-
-| Export | Kind | Description |
-|---|---|---|
-| `Zon` | `Plugin` | The plugin function. Register with `engine.use(Zon, options)`. |
-| `VERSION` | `string` | This package's version, always equal to `package.json` "version". |
-| `ZonOptions` | type | The options object shape (see [Options](#options)). |
-
-`Zon.defaults` (a `ZonOptions`) holds the merged default options:
-
-```typescript
-Zon.defaults = {
-  charAsNumber: false,
-  enumTag: null,
-}
-```
-
-## Parse entry
-
-The plugin has **no convenience `parse()` function** of its own. You
-parse by building a Tabnas engine, layering the jsonic grammar, then
-the `Zon` plugin, and calling the engine's `.parse()`:
-
-```js
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
-
-const j = new Tabnas().use(jsonic).use(Zon)
-
-j.parse('.{ .a = 1 }') // => { a: 1 }
-```
-
-### `engine.use(Zon, options?)`
-
-Registers and immediately applies the plugin. Returns the engine, so
-registrations chain (`new Tabnas().use(jsonic).use(Zon, opts)`). The
-plugin merges `options` over `Zon.defaults`, installs the embedded ZON
-grammar, and re-applies its jsonic option overrides (struct/tuple
-tokens, `=` separator, identifier keys, Zig escapes, ZON comments, the
-strict Zig number lexer, and the five custom lex matchers).
-
-The instance is reusable and stateless across parses; build it once
-and reuse it. Building the grammar dominates a parse, so do not
-reconstruct the engine per call.
-
-### `engine.parse(src)`
-
-Parses a ZON source string and returns the resulting JavaScript value.
-Objects come back as maps built with `Object.create(null)` (no
-prototype); arrays are plain arrays; scalars are `number`, `string`,
-`boolean`, or `null` — plus `bigint` for an integer literal too large to
-be an exact double. A failed parse throws (see [Errors](#errors)).
-
-## Options
-
-`ZonOptions` has exactly two fields:
-
-```typescript
-type ZonOptions = {
-  charAsNumber: boolean
-  enumTag: null | string
-}
-```
-
-### `charAsNumber`
-
-- **Type:** `boolean`
-- **Default:** `false`
-- **Effect:** Controls how Zig character literals (`'x'`, `'\n'`,
-  `'\x41'`, `'\u{1F600}'`) are parsed.
-  - `false` — the literal becomes a one-character string. `'A'` → `'A'`.
-  - `true` — the literal becomes its numeric Unicode code point. `'A'`
-    → `65`, `'\n'` → `10`, `'\u{1F600}'` → `128512`.
-
-```js
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
-
-const j = new Tabnas().use(jsonic).use(Zon, { charAsNumber: true })
-j.parse("'A'") // => 65
-```
-
-### `enumTag`
-
-- **Type:** `null | string`
-- **Default:** `null`
-- **Effect:** Controls how enum-literal *values* (a bare `.foo` used in
-  value position) are represented.
-  - `null` — the enum literal becomes the bare identifier string.
-    `.red` → `'red'`.
-  - a string `T` — the enum literal is wrapped in a one-key object
-    `{ [T]: name }`, so it can be distinguished from an ordinary
-    string. With `enumTag: '$enum'`, `.red` → `{ $enum: 'red' }`.
-
-The tag affects enum literals only when they are *values*. A `.field`
-used as a key (before `=`) is always the plain field name regardless of
-`enumTag`.
-
-```js
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
-
-const j = new Tabnas().use(jsonic).use(Zon, { enumTag: '$enum' })
-j.parse('.{ .kind = .red, .label = "red" }') // => { kind: { $enum: 'red' }, label: 'red' }
-```
-
-## ZON syntax
-
-ZON is **not** a superset of JSON. It uses Zig anonymous-struct
-syntax. The plugin disables the bare `{`, `[`, `]` openers and rebinds
-the key/value separator to `=`.
-
-### Structs (maps)
-
-A struct literal opens with `.{`, contains `.field = value` pairs
-separated by commas, and closes with `}`. Field names are identifiers
-(`[A-Za-z_][A-Za-z0-9_]*`), written with a leading dot that is
-stripped from the key. A name that is not a legal identifier is written
-`.@"..."` — any string literal, with the same escapes — and a struct may
-not repeat a field name.
-
-```
-.{ .a = 1, .b = 2 }     => { a: 1, b: 2 }
-.{ .a = .{ .b = 1 } }   => { a: { b: 1 } }
-.{ .@"a b" = 1 }        => { 'a b': 1 }
-.{ .a = 1, .a = 2 }     => error: duplicate struct field name
-```
-
-### Tuples (lists)
-
-A tuple literal also opens with `.{`, but contains bare values (no
-`.field =`), separated by commas, and closes with `}`. It produces an
-array.
-
-```
-.{ 1, 2, 3 }            => [1, 2, 3]
-.{ "a", "b" }           => ['a', 'b']
-.{ .{ 1, 2 }, .{ 3, 4 } } => [[1, 2], [3, 4]]
-```
-
-The struct-vs-tuple decision is made at lex time by peeking past the
-`.{`: if the next significant token is a field name (`.identifier` or
-`.@"..."`) followed by `=`, it is a struct; otherwise it is a tuple.
-
-### Empty literal
-
-An empty `.{}` parses as an **empty array** (`[]`), since with no
-contents there is no `.field =` to mark it as a struct.
-
-```
-.{}                     => []
-```
-
-### Trailing commas
-
-A trailing comma before `}` is allowed in both structs and tuples.
-
-```
-.{ .a = 1, }            => { a: 1 }
-.{ 1, 2, 3, }           => [1, 2, 3]
-```
-
-### Scalars
-
-| Construct | Example | Result |
-|---|---|---|
-| Integer | `42` | `42` |
-| Float | `3.14` | `3.14` |
-| Hex | `0x2a` | `42` |
-| Octal | `0o52` | `42` |
-| Binary | `0b101010` | `42` |
-| Hex float | `0x1.8p1` | `3` |
-| Exponent | `1e5`, `12_3.0E+77` | `100000`, `1.23e+79` |
-| Digit separator | `1_000_000` | `1000000` |
-| Infinity / NaN | `inf`, `-inf`, `nan` | `Infinity`, `-Infinity`, `NaN` |
-| Big integer | `36893488147419103231` | `36893488147419103231n` (a `bigint`) |
-| Boolean | `true`, `false` | `true`, `false` |
-| Null | `null` | `null` |
-| String | `"hello"` | `'hello'` |
-| Enum literal | `.red`, `.@"a b"` | `'red'`, `'a b'` (or `{ tag: ... }`) |
-| Char literal | `'A'` | `'A'` (or `65`) |
-
-### Numbers are Zig numbers, not relaxed-JSON numbers
-
-The plugin replaces jsonic's number lexer with one that implements Zig's
-literal grammar exactly, so ZON's strictness is preserved:
-
-```
-+1      .5      5.      0123      00      -0
-1__0    1_      _1      0x_2A     0X2A    0O52
-0b12    0o18    1abc    1e        0b1.1   0.1.2
-```
-
-are all **rejected**, as the zig compiler rejects them. A leading `-` is a
-negation prefix and may be separated by space (`- 1`); `-nan` is not a
-literal. An integer whose exact value does not fit an IEEE-754 double is
-returned as a `bigint` rather than silently rounded — everything else is a
-`number`.
-
-### Strings
-
-Double-quoted strings only (single quotes are reserved for char
-literals). Zig-flavoured escapes are recognised: `\n`, `\r`, `\t`,
-`\\`, `\"`, `\'`. Unknown escapes are an error.
-
-```
-"hello"                 => 'hello'
-"a\nb"                  => 'a\nb'
-"a\\b"                  => 'a\b'
-```
-
-### Multi-line strings
-
-Consecutive lines beginning with `\\` form one string. Each line
-contributes its text after the `\\`; lines are joined with `\n`. Zig's
-tokenizer lexes the whole run as one token and skips the whitespace
-between the lines, so **blank lines inside the run continue the literal**
-(contributing an empty line) rather than ending it.
-
-```
-\\hello
-\\world                 => 'hello\nworld'
-```
-
-### Character literals
-
-Single-quoted Zig char literals: a single character, or an escape
-`'\n'` `'\r'` `'\t'` `'\\'` `'\''` `'\"'` `'\0'`, a hex escape
-`'\xNN'`, or a Unicode escape `'\u{...}'`. By default the result is a
-one-character string; with `charAsNumber: true` it is the numeric code
-point.
-
-```
-'A'                     => 'A'   (or 65 with charAsNumber)
-'\n'                    => '\n'  (or 10)
-'\u{1F600}'             => '😀'  (or 128512)
-```
-
-### Comments
-
-`//` line comments only. They are discarded. `//!` and `///` are Zig
-**doc** comments, which ZON rejects; `////` (four or more slashes) is an
-ordinary comment again.
-
-```
-.{
-  // a comment
-  .name = "x", // trailing comment
-}                       => { name: 'x' }
-```
-
-(Jsonic's `#` hash comments and `/* */` block comments are disabled by
-the plugin.)
-
-## Tokens
-
-The plugin's lexer produces these tokens (as surfaced in the railroad
-diagram legend):
-
-| Token | Source | Meaning |
-|---|---|---|
-| `#OB` | `.{` | start of a struct (map) |
-| `#OS` | `.{` | start of a tuple (list) |
-| `#CB` | `}` | close of struct or tuple |
-| `#CL` | `=` | key/value separator |
-| `#TX` | `.ident`, `.@"..."` | field name (key) or enum literal (value) |
-| `VAL` | — | a value: number, string, `true`/`false`/`null`, or `.enum` |
-
-`{`, `[`, and `]` are **not** tokens — they are removed, so a bare `{`
-is a syntax error.
-
-## Grammar group tag
-
-Every grammar alternate the plugin adds carries the group tag `zon`.
-Callers can switch the ZON alts off (restoring plain jsonic) via
-`rule.exclude: 'zon'`:
-
-```typescript
-const j = new Tabnas().use(jsonic).use(Zon).options({
-  rule: { exclude: 'zon' },
-})
-```
+The dialect implemented is llama.cpp's `grammars/README.md` at commit
+`dd1ea524333b1e697489067d7a4c39c60d32beee` (2026-08-10).
+
+---
+
+## Conversion
+
+### `gbnfConvert(src, opts?) => GrammarSpec`
+
+Take GBNF source and return a tabnas `GrammarSpec` (a `ref` map of
+action closures, an `options` block, and a `rule` table). This is the
+primary entry point, and is also exported as `toSpec`.
+
+- `src: string` — the GBNF source.
+- `opts?: GbnfConvertOptions` — see below.
+
+Throws `GbnfParseError` when the text is not GBNF, and
+`GbnfCompileError` when it is GBNF but does not describe a buildable
+grammar.
+
+### `parseGbnf(src) => Grammar`
+
+Parse GBNF source into the grammar IR (`{ productions: [...] }`)
+*without* emitting a spec. Each production is `{ name, alts }`, where
+`alts` is a list of sequences of IR elements. Useful for inspecting or
+transforming a grammar.
+
+Validation runs here, not in the emitter, so the returned `Grammar` is
+always one the shared compiler can build: `root` exists, every reference
+resolves, and no tokenizer-token terminals remain.
+
+### `emitGrammarSpec(grammar, opts?) => GrammarSpec`
+
+Re-exported from [`@tabnas/bnf`](https://github.com/tabnas/bnf).
+Converts an already-parsed `Grammar` into a `GrammarSpec`.
+`gbnfConvert(src)` is `emitGrammarSpec(parseGbnf(src), …)` plus the
+lexer settings described under "Emitted lexer options" below.
+
+### `eliminateLeftRecursion(grammar) => Grammar`
+
+Re-exported from `@tabnas/bnf`. Rewrites direct and indirect left
+recursion via Paull's algorithm, returning a new grammar. Called
+internally by `emitGrammarSpec`; exported for inspection.
+
+### `gbnfRules`
+
+The declarative table of tabnas rules that defines the GBNF grammar
+itself — the meta-grammar used to read GBNF source. Exported for
+introspection and tooling.
+
+### `GbnfConvertOptions`
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `start` | `string` | `'root'` | Entry rule. `root` must still be defined either way. |
+| `tag` | `string` | `'gbnf'` | Group tag stamped on every emitted alt. |
+| `eagerClasses` | `boolean` | `true` | Let character-class tokens fire regardless of what the active rule expects, when the grammar's classes are provably unambiguous. See below. |
+| `builtins` | `boolean` | `false` | Emit probe dispatch and tree building as engine `$`-builtin refs, keeping the spec function-free and serializable. |
+| `marks` | `boolean` | `false` | Emit a stable `m` mark per user-rule alt, enabling `@<rule>:o\|c:<mark>` action references. |
+| `wordKeywords` | `boolean` | `false` | Treat word-like literals as whole-word keywords. Wrong for GBNF (a scannerless notation), and it disables `eagerClasses`; present because the option is the shared compiler's. |
+
+---
+
+## Plugin
+
+### `gbnf` (Plugin)
+
+Install with `new Tabnas({ plugins: [gbnf] })` or `tn.use(gbnf)`. Adds:
+
+- **`tn.gbnf(src, opts?) => GrammarSpec`** — compile and install. The
+  spec is applied with `tn.grammar(spec)`, which brings the lexer
+  settings with it.
+- **`tn.gbnf.toSpec(src, opts?) => GrammarSpec`** — compile only.
+
+Use a fresh instance per grammar (`tn.make()`): installing a grammar
+also installs instance-wide lexer settings, so a second grammar layered
+onto the same instance inherits the first one's.
+
+---
 
 ## Errors
 
-A failed parse throws the engine's standard parse error. It carries
-the usual fields — an error `code`, the source location (`row`, `col`,
-`pos`), the offending `src` fragment, and a formatted multi-line
-`message` with a source-context extract. Inputs that are valid jsonic
-but not valid ZON (such as a bare `{` opener) are errors.
+### `GbnfParseError`
+
+The source is not GBNF. Fields:
+
+| Field | Meaning |
+|---|---|
+| `name` | `'GbnfParseError'` |
+| `line` | 1-based line of the failure, when known |
+| `column` | 1-based column, when known |
+| `cause` | the underlying `TabnasError`, when there is one |
+
+Also raised by the terminal decoders — an unknown escape, a short hex
+escape, a code point above `U+10FFFF`, an empty character class, a
+descending range, an inverted repetition bound.
+
+### `GbnfCompileError`
+
+The source is GBNF, but does not describe a buildable grammar. Fields:
+
+| Field | Meaning |
+|---|---|
+| `name` | `'GbnfCompileError'` |
+| `rule` | the rule responsible |
+
+Raised for: no rule named `root`; a reference to a rule that is never
+defined; a tokenizer-token terminal.
+
+```js
+const { parseGbnf } = require('@tabnas/gbnf')
+
+const classify = (src) => { try { parseGbnf(src); return 'ok' } catch (e) { return e.name } }
+
+classify(`root ::= "a"`)     // => 'ok'
+classify(`root ::= <think>`) // => 'GbnfCompileError'
+classify(`root ::= [z-a]`)   // => 'GbnfParseError'
+```
+
+---
+
+## Supported syntax
+
+### Rules
+
+```gbnf
+name ::= alternation
+```
+
+A rule name is `[A-Za-z0-9_-]+` — llama.cpp's `is_word_char` set, so a
+name may start with a digit or a hyphen. `root` is the start symbol and
+is mandatory. A second definition of a name **replaces** the first;
+GBNF has no incremental-alternative operator.
+
+### Alternation and sequence
+
+`a | b` alternates; elements written side by side are a sequence; `(…)`
+groups. An **empty alternative** is legal and meaningful:
+
+```gbnf
+ws ::= | " " | "\n" [ \t]{0,20}
+```
+
+### Terminals
+
+| Form | Meaning |
+|---|---|
+| `"text"` | a **case-sensitive** string literal |
+| `[a-z]` | one character in a range |
+| `[abc]` | one character from an enumeration |
+| `[^a-z]` | one character *not* in the set |
+| `.` | any one character, newline included |
+
+Ranges and members combine freely (`[a-zA-Z_0-9]`). A `-` immediately
+before the closing bracket is a literal hyphen, not a range operator, so
+`[-+*/]` is four members.
+
+`""` denotes zero characters and contributes no element.
+
+### Escapes
+
+Valid inside both string literals and character classes:
+
+| Escape | Meaning |
+|---|---|
+| `\n` `\r` `\t` | newline, carriage return, tab |
+| `\\` `\"` `\[` `\]` | the character itself |
+| `\xXX` | one byte, 2 hex digits |
+| `\uXXXX` | a BMP code point, 4 hex digits |
+| `\UXXXXXXXX` | any code point, 8 hex digits |
+
+Any other escape is an error, matching llama.cpp. There is no `\-`: a
+hyphen inside a class is positional, not escaped.
+
+### Repetition (postfix)
+
+| Form | Meaning | IR |
+|---|---|---|
+| `x*` | zero or more | `star` |
+| `x+` | one or more | `plus` |
+| `x?` | zero or one | `opt` |
+| `x{m}` | exactly m | `rep` with `min = max = m` |
+| `x{m,}` | m or more | `rep` with `max = Infinity` |
+| `x{m,n}` | between m and n | `rep` with `min`/`max` |
+
+Operators may be chained and are applied left to right, so `x*?` is
+`(x*)?`. `{0,}`, `{1,}` and `{0,1}` collapse onto `star`, `plus` and
+`opt`; `{1}` disappears.
+
+### Comments
+
+`#` to end of line. A `#` inside a string literal or a character class
+is an ordinary character — both are lexed whole, before the comment
+matcher sees them.
+
+### Not supported
+
+Tokenizer-token terminals (`<think>`, `<[1000]>`, `!</think>`) parse but
+are rejected at compile time. See
+[known-gaps.md](known-gaps.md#1-tokenizer-token-terminals-are-rejected-by-policy).
+
+---
+
+## Emitted lexer options
+
+GBNF is scannerless, so the spec carries the settings that make the
+engine behave that way. They are applied to the instance by
+`tn.grammar(spec)`.
+
+| Option | Value | Why |
+|---|---|---|
+| `tokenSet.IGNORE` | `[]` | Nothing is skipped between tokens. `root ::= "a"` must reject `" a "`. |
+| `space.lex` `line.lex` | `false` | Whitespace is grammar, not noise. |
+| `comment.lex` | `false` | A `#` in the INPUT is data, not a comment. |
+| `string.lex` `number.lex` `text.lex` `value.lex` | `false` | JSON-shaped matchers would claim characters the grammar has already spoken for; without them, an unmatched character is a lex error. |
+| `lex.empty` | computed | Whether the empty input is in the language, decided from the IR — see below. |
+| `fixed.token` | from the grammar | One entry per distinct string literal. Case-sensitive literals lower to exact fixed tokens. |
+| `match.token` | from the grammar | One anchored regex per distinct character class. |
+
+### `lex.empty`
+
+The engine special-cases `''` before any rule runs: it returns
+`lex.emptyResult` (`undefined`) when `lex.empty` is set, and throws when
+it is not. No rule ever sees the empty input, so the compiler decides at
+build time — it walks the IR for a derivation of the empty string from
+the start rule.
+
+```js
+const { gbnfConvert } = require('@tabnas/gbnf')
+
+gbnfConvert(`root ::= "x"`).options.lex     // => ({ empty: false })
+gbnfConvert(`root ::= "x"*`).options.lex    // => ({ empty: true })
+gbnfConvert(`root ::= "x"{0,2}`).options.lex // => ({ empty: true })
+```
+
+### `eagerClasses`
+
+The engine lexes under the active rule's direction: a class token is
+only offered a position when the rule's alternatives name it there. That
+is what lets `[a-z]` and `[a-z0-9_]` coexist — and it is also why a
+class immediately after a repetition can be invisible.
+
+When two conditions hold over the whole grammar, the front-end drops the
+gate by flagging every class matcher `eager$`:
+
+1. the classes are pairwise disjoint, and
+2. no class contains the first character of any string literal.
+
+Under both, every character has exactly one possible token, so
+tokenisation no longer depends on parse state. Set `eagerClasses: false`
+to keep rule-directed lexing. The full account, including what happens
+when the conditions do not hold, is in
+[known-gaps.md](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing).
+
+---
+
+## `VERSION`
+
+The package version as a string. Equal to `package.json`'s `version`;
+a test fails the build if they drift.

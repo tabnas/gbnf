@@ -1,10 +1,10 @@
-module github.com/tabnas/zon/go
+module github.com/tabnas/gbnf/go
 
 go 1.24.7
 
-require github.com/tabnas/jsonic/go v0.6.0
-
 require (
-	github.com/tabnas/json/go v0.5.0 // indirect
-	github.com/tabnas/parser/go v0.8.0 // indirect
+	github.com/tabnas/bnf/go v0.1.0
+	github.com/tabnas/parser/go v0.8.0
 )
+
+replace github.com/tabnas/bnf/go => ../../bnf/go

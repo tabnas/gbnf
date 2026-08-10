@@ -1,117 +1,254 @@
-# @tabnas/zon
+# @tabnas/gbnf
 
 <!-- tabnas-badges -->
-[![npm](https://tabnas.github.io/status/badges/zon-npm.svg)](https://www.npmjs.com/package/@tabnas/zon)
-[![CI](https://github.com/tabnas/zon/actions/workflows/ci.yml/badge.svg)](https://github.com/tabnas/zon/actions/workflows/ci.yml)
-[![go](https://tabnas.github.io/status/badges/zon-go.svg)](https://pkg.go.dev/github.com/tabnas/zon/go)
-[![tabnas standard](https://tabnas.github.io/status/badges/zon-standard.svg)](https://tabnas.github.io/status/)
+[![npm](https://tabnas.github.io/status/badges/gbnf-npm.svg)](https://www.npmjs.com/package/@tabnas/gbnf)
+[![CI](https://github.com/tabnas/gbnf/actions/workflows/ci.yml/badge.svg)](https://github.com/tabnas/gbnf/actions/workflows/ci.yml)
+[![tabnas standard](https://tabnas.github.io/status/badges/gbnf-standard.svg)](https://tabnas.github.io/status/)
 <!-- /tabnas-badges -->
 
-A grammar plugin that teaches the [Tabnas](https://github.com/tabnas/parser)
-parser to read [Zig Object Notation (ZON)](https://ziglang.org/documentation/master/#ZON) —
-the anonymous-struct data format used for `build.zig.zon` manifests.
-Available for both TypeScript and Go, built on the same grammar.
+GBNF grammar compiler for the
+[tabnas](https://github.com/tabnas/parser) parser. Takes GBNF source —
+the [llama.cpp](https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md)
+dialect, `::=` and `|`, mandatory `root` — and emits a tabnas
+`GrammarSpec`. Installed on an engine, the spec parses inputs in that
+grammar and builds a `{rule, src, kids}` AST.
 
-ZON looks like this:
-
-```zon
-.{
-    .name = "example",
-    .version = "0.0.1",
-    .dependencies = .{
-        .foo = .{ .url = "https://example.com/foo.tar.gz", .hash = "1220deadbeef" },
-    },
-    .paths = .{ "build.zig", "src" },
-}
-```
-
-## Install
+**Why you would want this.** GBNF is the grammar notation for
+**constrained decoding**: llama.cpp, XGrammar (and therefore vLLM and
+SGLang), KoboldCpp, LocalAI and node-llama-cpp all take a `.gbnf` file
+and mask the sampler so the model can only emit output the grammar
+accepts. What none of them give you is a way to answer *"does this
+string match my grammar?"* without loading a model. That question — the
+most-asked one around GBNF — is what this package answers: compile the
+grammar once, then parse candidate strings against it, offline, in
+milliseconds.
 
 ```bash
-# TypeScript / JavaScript
-npm install @tabnas/parser @tabnas/jsonic @tabnas/zon
-
-# Go
-go get github.com/tabnas/zon/go@latest
+npm install @tabnas/parser @tabnas/bnf @tabnas/gbnf
 ```
 
-## One tiny example
+## A first grammar
 
-**TypeScript** — the plugin layers onto a Tabnas engine:
+A grammar is a set of **rules**, `name ::= definition`. Alternatives are
+separated by `|`, terminals are double-quoted strings, and the rule
+named `root` is the start symbol — the whole input must match it.
 
 ```js
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
+const { Tabnas } = require('@tabnas/parser')
+const { gbnf } = require('@tabnas/gbnf')
 
-const j = new Tabnas().use(jsonic).use(Zon)
+const tn = new Tabnas({ plugins: [gbnf] })
+tn.gbnf(`root ::= "hi" | "hello"`)
 
-j.parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
-j.parse('.{ 1, 2, 3 }')                     // => [1, 2, 3]
+tn.parse('hi') // => ({ rule: 'root', src: 'hi', kids: [] })
 ```
 
-**Go** — `tabnaszon.Parse` is the one-call entry point:
+Every rule that matches produces one AST node with three fields:
 
-```go
-import tabnaszon "github.com/tabnas/zon/go"
+- **`rule`** — the rule's name, so you can navigate the tree by the names
+  you wrote.
+- **`src`** — the source text the rule matched.
+- **`kids`** — child nodes, one per sub-rule the rule referenced.
 
-result, _ := tabnaszon.Parse(`.{ .name = "Alice", .age = 30 }`)
-// map[string]any{"name": "Alice", "age": float64(30)}
+## Sequences and sub-rules
+
+Write elements one after another to match them in order, and reference
+another rule by its bare name to nest it:
+
+```js
+const { Tabnas } = require('@tabnas/parser')
+const { gbnf } = require('@tabnas/gbnf')
+
+const tn = new Tabnas({ plugins: [gbnf] })
+tn.gbnf(`
+root  ::= greet " " name
+greet ::= "hello"
+name  ::= [a-z]+
+`)
+
+const out = tn.parse('hello world')
+out.src                     // => 'hello world'
+out.kids.map((k) => k.rule) // => ['name']
+out.kids[0].src             // => 'world'
 ```
+
+Two things to notice.
+
+`out.src` is `'hello world'`, spaces and all. **GBNF is scannerless**:
+the grammar describes every character, so the space between `greet` and
+`name` is there because the grammar asked for it. Nothing is skipped —
+`tn.gbnf()` installs an empty ignore set and switches off the engine's
+default JSON-shaped matchers, so `tn.parse()` is a faithful acceptance
+test rather than a lenient one. Drop the `" "` from the grammar and
+`'hello world'` stops parsing.
+
+`greet` does not appear among the children. A rule whose *whole* body is
+a single string literal is a lexical definition rather than a rule, so
+it compiles to a named lexer token (`greet ::= "hello"` becomes
+`#greet`). Multi-alternative rules are real choices and stay rules.
+
+## Terminals
+
+**String literals are case-SENSITIVE** — the opposite of ABNF's default,
+and the single most common way to get a GBNF port subtly wrong:
+
+```js
+const { Tabnas } = require('@tabnas/parser')
+const { gbnf } = require('@tabnas/gbnf')
+
+const tn = new Tabnas({ plugins: [gbnf] })
+tn.gbnf(`root ::= "true" | "false"`)
+
+tn.parse('true').src // => 'true'
+
+let rejected = false
+try { tn.parse('TRUE') } catch (e) { rejected = true }
+rejected // => true
+```
+
+Inside a literal, the escapes are `\n`, `\r`, `\t`, `\\`, `\"`, `\[`,
+`\]`, `\xXX`, `\uXXXX` and `\UXXXXXXXX`. Anything else is an error, not
+a character copied through — an unknown escape silently changing the
+accepted language is exactly the failure an offline validator exists to
+prevent.
+
+**Character classes** are regex-shaped: `[a-z]` for a range, `[NBKQR]`
+for an enumeration, `[^\n]` for negation, and `.` for any character.
+They accept the same escapes, so `[\x00-\x1F\x7F]` is the control
+characters:
+
+```js
+const { Tabnas } = require('@tabnas/parser')
+const { gbnf } = require('@tabnas/gbnf')
+
+const tn = new Tabnas({ plugins: [gbnf] })
+tn.gbnf(`
+root  ::= piece file rank
+piece ::= [NBKQR]
+file  ::= [a-h]
+rank  ::= [1-8]
+`)
+
+tn.parse('Ne4').kids.map((k) => k.src) // => ['e', '4']
+```
+
+## Repetition
+
+Repetition is **postfix**, regex-style: `x*`, `x+`, `x?`, and the
+counted forms `x{m}`, `x{m,}`, `x{m,n}`.
+
+```js
+const { Tabnas } = require('@tabnas/parser')
+const { gbnf } = require('@tabnas/gbnf')
+
+const tn = new Tabnas({ plugins: [gbnf] })
+tn.gbnf(`root ::= [0-9]+ ("," [0-9]+)*`)
+
+tn.parse('1,2,3').src // => '1,2,3'
+tn.parse('7').src     // => '7'
+```
+
+`{m,n}` is the form to reach for when writing grammars a sampler will
+consume: llama.cpp's own guidance is to bound repetition (`[ \t]{0,20}`)
+rather than stack optionals, because unbounded whitespace is a known
+sampling anti-pattern.
+
+## The `root` rule is mandatory
+
+GBNF's start symbol is always `root`, and a grammar without one does not
+compile — llama.cpp says "grammar does not contain a 'root' symbol", and
+so does this:
+
+```js
+const { Tabnas } = require('@tabnas/parser')
+const { gbnf } = require('@tabnas/gbnf')
+
+const tn = new Tabnas({ plugins: [gbnf] })
+
+let err = null
+try { tn.gbnf(`greeting ::= "hi"`) } catch (e) { err = e }
+err.name // => 'GbnfCompileError'
+```
+
+Two error classes, and the difference between them matters:
+`GbnfParseError` means the text is not GBNF; `GbnfCompileError` means it
+is GBNF but does not describe a grammar this compiler can build — no
+`root`, a reference to a rule that is never defined, or a tokenizer-token
+terminal.
+
+## Tokenizer-token terminals are rejected
+
+`<think>`, `<[1000]>` and `!</think>` match entries of a **sampler's
+vocabulary**, not characters. A text parser has no tokenizer, so there
+is no faithful semantics to implement. They parse — a grammar containing
+one is not a *syntax* error — and are then rejected by name:
+
+```js
+const { Tabnas } = require('@tabnas/parser')
+const { gbnf } = require('@tabnas/gbnf')
+
+const tn = new Tabnas({ plugins: [gbnf] })
+
+let rule = null
+try { tn.gbnf(`root ::= <think> "x"`) } catch (e) { rule = e.rule }
+rule // => 'root'
+```
+
+Approximating `<think>` as the literal text `"<think>"` would accept
+strings the sampler refuses; dropping it would accept strings with
+nothing there at all. Either silently changes the accepted language,
+which is the one thing this tool must never do.
 
 ## Conformance
 
-`@tabnas/zon` accepts exactly the documents **ziglang/zig 0.16.0** accepts,
-and produces the same value for each. The reference implementation is the
-judge, not this repo: `scripts/fetch-zigzon.sh` downloads a pinned zig 0.16.0,
-builds a small oracle around the compiler's own `std.zig.Ast` + `std.zig.ZonGen`,
-and has it rule on every ZON document in the zig tree.
+The corpus is llama.cpp's own `grammars/` directory, copied verbatim
+into [`test/corpus/`](test/corpus/) — `json.gbnf`, `json_arr.gbnf`,
+`arithmetic.gbnf`, `c.gbnf`, `chess.gbnf`, `japanese.gbnf`,
+`list.gbnf`. All seven **compile**. Six of the seven parse real input
+end to end.
 
-| Corpus | Documents | Accepted correctly | Rejected correctly |
-|---|---|---|---|
-| Every `.zon` file in the zig tree, plus every snippet in `lib/std/zon/parse.zig` | 222 | 178 / 178 | 44 / 44 |
-| Leniency probes (`test/strictness/inputs.txt`), judged by the same oracle | 117 | 45 / 45 | 72 / 72 |
+The gaps are not papered over: `ts/test/corpus.test.js` asserts each
+expected failure explicitly, so if one starts working the suite goes
+red. They come from the seam between a scannerless notation and a
+tokenising engine, and are written up mechanism-by-mechanism in
+[`ts/doc/known-gaps.md`](ts/doc/known-gaps.md) — read that before
+trusting a "this grammar does not parse" result.
 
-Identical in both runtimes. Two documented deviations, both about
-representing a value that Zig resolves against a target type:
+## How it fits together
 
-- an integer literal too large for an exact IEEE-754 double is returned as a
-  `bigint` (TypeScript) / `*big.Int` (Go) rather than silently rounded;
-- `.{}` parses as the empty **list**, since an empty anonymous literal is both
-  an empty struct and an empty tuple until a type says otherwise.
+`@tabnas/gbnf` parses no grammar of its own beyond GBNF's syntax. The
+compilation itself — desugaring repetition into helper rules,
+eliminating left recursion, probe dispatch, literal lifting, token
+allocation, first-set analysis — lives in
+[`@tabnas/bnf`](https://github.com/tabnas/bnf) and is shared with
+[`@tabnas/abnf`](https://github.com/tabnas/abnf) and
+[`@tabnas/ebnf`](https://github.com/tabnas/ebnf):
 
-See [`AGENTS.md`](AGENTS.md#conformance-claim) for the full details.
+```
+GBNF text ──parseGbnf──▶ Grammar IR ──emitGrammarSpec──▶ GrammarSpec
+```
+
+This package owns the first arrow, plus the lexer settings the second
+arrow's output needs to behave scannerlessly.
+
+| Path | Description |
+|---|---|
+| [`ts/`](ts/) | TypeScript / JavaScript (`@tabnas/gbnf`). |
+| [`go/`](go/) | Reserved for the Go port. Not implemented yet: Go can load a spec this compiler produced, but cannot read `.gbnf` text. |
 
 ## Documentation
 
-Full documentation follows the [Diátaxis](https://diataxis.fr)
-framework — one file per quadrant, per language:
+Four-quadrant [Diátaxis](https://diataxis.fr) docs:
 
-| | TypeScript | Go |
-|---|---|---|
-| **Tutorial** (learning) | [ts/doc/tutorial.md](ts/doc/tutorial.md) | [go/doc/tutorial.md](go/doc/tutorial.md) |
-| **How-to guide** (tasks) | [ts/doc/guide.md](ts/doc/guide.md) | [go/doc/guide.md](go/doc/guide.md) |
-| **Reference** (API + options + syntax) | [ts/doc/reference.md](ts/doc/reference.md) | [go/doc/reference.md](go/doc/reference.md) |
-| **Concepts** (explanation) | [ts/doc/concepts.md](ts/doc/concepts.md) | [go/doc/concepts.md](go/doc/concepts.md) |
+| | TypeScript |
+|---|---|
+| **Tutorial** (learning) | [ts/doc/tutorial.md](ts/doc/tutorial.md) |
+| **How-to guide** (tasks) | [ts/doc/guide.md](ts/doc/guide.md) |
+| **Reference** (API + syntax) | [ts/doc/reference.md](ts/doc/reference.md) |
+| **Concepts** (explanation) | [ts/doc/concepts.md](ts/doc/concepts.md) |
+| **Known gaps** (limits) | [ts/doc/known-gaps.md](ts/doc/known-gaps.md) |
 
-Per-language hubs: [`ts/README.md`](ts/README.md),
-[`go/README.md`](go/README.md).
-
-## Grammar diagram
-
-The grammar is defined once in the top-level
-[`zon-grammar.jsonic`](zon-grammar.jsonic) and embedded into both
-implementations — TypeScript ([`ts/src/zon.ts`](ts/src/zon.ts)) and Go
-([`go/zon.go`](go/zon.go)) — by [`ts/embed-grammar.js`](ts/embed-grammar.js)
-during the TypeScript build. Edit the grammar there, not in the
-generated sources.
-
-As a railroad/syntax diagram, generated from the live grammar with
-[`@tabnas/railroad`](https://github.com/tabnas/railroad):
-
-![zon grammar railroad diagram](ts/doc/grammar.svg)
-
-ASCII version: [`ts/doc/grammar.txt`](ts/doc/grammar.txt).
+Per-language hub: [`ts/README.md`](ts/README.md).
 
 ## License
 
