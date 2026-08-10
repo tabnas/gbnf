@@ -92,10 +92,20 @@ Getting eager tokenisation wrong cannot over-accept: a mis-tokenised
 character makes the parse **fail**, never succeed. That is why the
 conditions are checked rather than assumed.
 
-**Status:** the general fix is a follow-set guard on the empty
-alternative of each generated repetition helper, which belongs in
-`@tabnas/bnf`'s helper emission — not in this front-end. Until then,
-grammars with overlapping classes cannot end a repetition on a class.
+**Status:** the follow-set guard has **landed** in `@tabnas/bnf`
+(tabnas/bnf#4): each repetition helper's terminating alternative is now
+re-issued once per FOLLOW token as a peek-and-push-back, so the loop can
+exit onto a character class. `root ::= sign? [0-9]+` and its ABNF
+equivalent parse.
+
+It was **not sufficient** for the corpus, and that is worth stating
+plainly rather than leaving the entry looking solved. Naming FOLLOW
+tells the lexer *which tokens are legal* at the loop exit; it does not
+tell it *which matcher to run* when several of those tokens overlap.
+`arithmetic.gbnf` has `[a-z]`, `[a-z0-9_]`, `[0-9]` and `[ \t\n]` live
+at the same positions, so it still fails — the failure simply moves.
+The remaining half is the same position-aware-column problem as 2b, and
+is tracked as tabnas/bnf#5.
 
 ### 2b. A class can outrank the literal a rule wanted
 
@@ -113,9 +123,38 @@ still be starting), so the closing `"` is lexed as an escape character
 and the string never terminates. `{}` and `{ }` parse; `{"a":1}` does
 not.
 
-**Status:** inherent to a tokenising lexer with overlapping token
-definitions. The same hazard exists for two literals that overlap
-(`"a"` beside `"ab"`), because the fixed matcher is global and
+**Status:** open, and the cause is narrower than "matcher precedence"
+— that framing is what made it look unfixable. Measured on the emitted
+spec for the string-body helper:
+
+| | |
+|---|---|
+| tokens named anywhere | 6 |
+| tokens in **first** position | 3 |
+| is the escape class ever first? | **no** |
+| is it in the token column? | **yes** |
+
+A rule's token column is the union of every token named *anywhere* in
+its alternatives, but a multi-token lookahead prefix (`s: "#T9 ESC"`)
+names tokens valid only at a later position. The escape class is legal
+only after a backslash, yet it is offered at position 0 — where it
+matches `"` and takes the closing quote.
+
+So this is not really about lex order. Reordering cannot fix it either:
+after a backslash `"` **must** lex as the escape class, and at the end
+of the body it **must** lex as the fixed quote. Same character, same
+rule, opposite answers, decided by position — no total order over
+matchers gets both right.
+
+The obvious compiler-side remedy was tried and rejected: truncating a
+prefix before the offending token moved `json.gbnf` past the closing
+quote but **regressed `c.gbnf`**, whose `int a(){}` stopped parsing.
+The deep prefixes are doing real dispatch work, so the fix cannot be
+subtractive — it has to make the column position-aware. Tracked as
+tabnas/bnf#5.
+
+The separate hazard of two overlapping *literals* (`"a"` beside `"ab"`)
+remains as described, since the fixed matcher is global and
 longest-match-wins.
 
 ### 2c. What this looks like in the corpus
@@ -126,7 +165,7 @@ longest-match-wins.
 | Grammar | Sample | Cause |
 |---|---|---|
 | `arithmetic.gbnf` | any input at all | 2a — `ws ::= [ \t\n]*` then a term |
-| `json.gbnf` | `{"a":1}` | 2b — escape class matches the closing quote |
+| `json.gbnf` | `{"a":1}` | 2b — escape class is offered where it is not valid |
 | `c.gbnf` | `int a(){//x\n}` | 2a — `statement*` then a comment |
 
 The expected failures are asserted, not skipped. If one starts working,
