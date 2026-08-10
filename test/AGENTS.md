@@ -1,79 +1,63 @@
-# Agents Guide — shared spec fixtures
+# Agents Guide — the conformance corpus
 
-`spec/*.tsv` holds the cross-runtime conformance fixtures. Both runtimes
-auto-discover and run **every** file in this directory, so a change here
-affects TypeScript and Go together — edit with that in mind.
+`corpus/*.gbnf` holds llama.cpp's own grammars, copied verbatim from
+[`ggml-org/llama.cpp`](https://github.com/ggml-org/llama.cpp/tree/master/grammars)
+at commit `dd1ea524333b1e697489067d7a4c39c60d32beee` (fetched
+2026-08-10). They are the reference for what real GBNF looks like.
 
-`zigzon/` and `strictness/` hold the generated zig-reference corpora. What is
-tracked there is the instrument, never the corpus: `zigzon/tools/` (the
-oracle and its harness) and `strictness/inputs.txt` (our own probe inputs).
-Both `cases.json` files are `.gitignore`d and are rebuilt from the pinned
-ziglang/zig 0.16.0 release by `scripts/fetch-zigzon.sh`.
+Unlike the generated corpora in some sibling repos, these files are
+**committed**. There is no fetch script and no `pretest` hook: the whole
+point is that the bytes are upstream's, and a network failure must never
+be able to turn the conformance suite into a silent no-op.
 
 ## The instrument's own rules
 
-- **The corpora are built automatically, not opt-in.** `pretest` in
-  `ts/package.json` and `TestMain` in `go/zigzon_test.go` both run
-  `scripts/fetch-zigzon.sh` before grading, so the suites run in CI as well
-  as locally. Do not remove either hook.
-- **A missing corpus is a FAILURE, not a skip.** The only skip permitted is
-  the platform one: a host with no pinned zig oracle toolchain
-  (anything but linux/macos on x86_64/aarch64) reports one explicit,
-  platform-named skip. Never widen that carve-out to cover a missing file.
-- **The census is pinned** — 184 valid / 44 invalid in `zigzon`, 45 / 72 in
-  `strictness`. If it fails, find out what changed in the generator; do not
-  edit the number to match.
-- **Every download is SHA-256 pinned.** A mismatch is a hard failure, never
-  something to work around.
-- Do not shrink a corpus, add a skip list, narrow the option set, or loosen
-  the value comparison to improve a number. A conformance figure that cannot
-  fail is worth nothing.
+- **Never edit a grammar file.** Not to reformat, not to trim trailing
+  whitespace, not to "fix" a rule this compiler finds hard. If a grammar
+  exposes a limitation, that is the finding — record it in
+  [`../ts/doc/known-gaps.md`](../ts/doc/known-gaps.md).
+- **The census is pinned.** `ts/test/corpus.test.js` lists all seven
+  grammars by name and asserts that the directory contains exactly
+  those. A glob would let a deleted grammar pass unnoticed.
+- **A gap is an assertion, not an omission.** Samples this compiler
+  cannot parse live in `EXPECTED_FAILURES`, asserted with
+  `notEqual(err, null)`. If one starts working the suite goes **red**,
+  and the message says to update the gap document. Deleting the case
+  instead is how a conformance figure stops meaning anything.
+- **Do not weaken a case to make it green.** Not by narrowing the
+  sample, not by loosening the comparison, not by adding a skip. Compile
+  is compile; parse is parse.
+- **Adding a grammar means adding its provenance.** New files go in with
+  their upstream URL and commit recorded in
+  [`corpus/README.md`](corpus/README.md), and their name added to the
+  census.
 
-## Format
+## What is graded
 
-Tab-separated, one case per line, with a header row naming the columns.
-Blank lines are skipped, and so are comment lines — a line starting with
-`#` that contains no tab. (A data row always has at least one tab, so a
-`#`-leading source such as a C preprocessor directive still works.)
+Three claims, in `ts/test/corpus.test.js`:
 
-| Column | Meaning |
-|---|---|
-| `input` | ZON source. Escapes `\n` `\r` `\t` `\\` are decoded. |
-| `expected` | A JSON value (the parse result), or `ERROR` / `ERROR:<substring>` for inputs that must fail. |
-| `opts` | Optional JSON object of plugin options (empty means defaults). |
+1. **Compiles** — every file produces a `GrammarSpec` with a `root` rule
+   and the `__start__` wrapper. This is the corpus's primary job: it is
+   what proves the front-end reads real GBNF rather than a tidied
+   dialect of it. All seven pass.
+2. **Accepts** — the listed samples parse. Six of the seven grammars
+   have samples here; they are small and real, the kind of text the
+   grammar exists to constrain a model into producing.
+3. **Known gaps** — the listed samples do NOT parse, each labelled with
+   the mechanism that stops it.
 
-`expected` and `opts` are **not** escape-decoded — they are raw JSON, so
-JSON's own escape rules apply (`"a\nb"` is a string containing a newline).
-To put a literal backslash in `input`, write `\\`.
+## Adding a sample
 
-Results are compared after a JSON round-trip, so key order and the
-`OrderedMap` / null-prototype-object representations do not affect the
-comparison.
+Put it in `ACCEPT` if it parses today, `EXPECTED_FAILURES` if it does
+not — and in the second case work out *why* first. The three causes seen
+so far are all in `known-gaps.md`:
 
-## Who runs what
+- a repetition followed by a character class the active rule does not
+  name (`§2a`);
+- two terminals that can both match at a position, where the class wins
+  because match matchers run before the fixed matcher (`§2b`);
+- a grammar that needs backtracking over an optional (`§3`).
 
-- TypeScript: `ts/test/parity.test.ts` — reads `../../test/spec` at runtime
-  from `dist-test/`, one `describe` per file.
-- Go: `go/parity_test.go` — `TestSpec` globs `../test/spec/*.tsv`.
-
-Both discover files by directory listing: adding a `.tsv` here runs it in
-both runtimes without touching either runner.
-
-## Rules
-
-- Prefer adding a fixture here over a one-off in-language assertion when a
-  case is expressible as input → output. That is what keeps the two
-  runtimes honest against each other.
-- What a fixture **cannot** express, because both runners compare after a
-  JSON round-trip: `bigint` / `*big.Int` values, `Infinity`, `NaN`, and the
-  `-0` / `0` distinction. Those live in `ts/test/zon.test.ts` and
-  `go/zon_test.go`, mirrored case for case.
-- [`strict.tsv`](spec/strict.tsv) collects the inputs the Zig reference
-  implementation REJECTS. Every verdict there came from the oracle in
-  `scripts/fetch-zigzon.sh`, not from a judgement call — if you add a row,
-  get the verdict the same way.
-- TypeScript is canonical. If the two runtimes disagree, the TS behaviour is
-  the expected value — unless Go has exposed a genuine TS defect, in which
-  case fix TS first and pin the corrected behaviour here.
-- A new fixture must pass in BOTH runtimes: run `go test ./...` (from `go/`)
-  and `npm test` (from `ts/`) before considering it done.
+If a new sample fails for a fourth reason, that is a new finding and
+`known-gaps.md` needs a new section — not a fourth line in
+`EXPECTED_FAILURES` with a hand-wave.

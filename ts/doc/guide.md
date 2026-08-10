@@ -1,185 +1,208 @@
 # How-to guide
 
-Short, task-focused recipes. Each is self-contained and assumes you
-have the plugin installed (see the [tutorial](tutorial.md) for the
-basics). For the full API, every option, and the complete syntax,
-follow the links into the [reference](reference.md).
+Task-oriented recipes. Each one is self-contained; skip to the problem
+you have. If you are new to GBNF here, start with
+[tutorial.md](tutorial.md).
 
-Every recipe starts from the same three imports:
+## Validate candidate strings against a grammar
 
-```js
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
-```
-
-## Use it as a plugin
-
-`Zon` is a plugin, not a standalone parser. Layer it onto a Tabnas
-engine that already has the jsonic grammar, then call `.parse()`:
+This is the reason the package exists: answer *"would the sampler have
+been allowed to emit this?"* without a model in the loop. Compile once,
+then test as many strings as you like.
 
 ```js
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
+const { Tabnas } = require('@tabnas/parser')
+const { gbnf } = require('@tabnas/gbnf')
 
-const j = new Tabnas().use(jsonic).use(Zon)
+const tn = new Tabnas({ plugins: [gbnf] })
+tn.gbnf(`
+root   ::= int frac?
+int    ::= "-"? [0-9]+
+frac   ::= "." [0-9]+
+`)
 
-j.parse('.{ .a = 1, .b = 2 }') // => { a: 1, b: 2 }
+const accepts = (s) => { try { tn.parse(s); return true } catch (e) { return false } }
+
+accepts('-12.75') // => true
+accepts('12.')    // => false
+accepts('1,5')    // => false
 ```
 
-The instance is reusable — build it once and call `.parse()` as many
-times as you like. (Building the grammar is the expensive part; do not
-reconstruct the instance per parse.)
+Two cautions. A `false` here means *this compiler* could not parse the
+string — check [known-gaps.md](known-gaps.md) before concluding the
+grammar rejects it. And the empty string is decided at compile time
+rather than by a parse, so `accepts('')` reports whether `root` derives
+the empty string; when it does, `tn.parse('')` returns `undefined`
+rather than a node.
 
-## Parse a realistic build.zig.zon
+## Port a grammar file from llama.cpp
 
-A ZON manifest mixes named struct fields with tuple-style `paths`
-lists and allows trailing commas and `//` line comments:
+Read the file and hand it over; there is nothing else to do. GBNF has
+no include mechanism and no options, so a `.gbnf` file is
+self-contained.
+
+```js ignore
+const Fs = require('node:fs')
+const { Tabnas } = require('@tabnas/parser')
+const { gbnf } = require('@tabnas/gbnf')
+
+const tn = new Tabnas({ plugins: [gbnf] })
+tn.gbnf(Fs.readFileSync('grammars/json.gbnf', 'utf8'))
+```
+
+Use a **fresh instance per grammar** (`tn.make()`). Installing a grammar
+also installs its lexer settings — the empty ignore set, the disabled
+default matchers, the `lex.empty` decision — and those are instance-wide,
+so a second grammar layered onto the same instance inherits the first
+one's.
+
+## Compile once, install many times
+
+`gbnfConvert` (also exported as `toSpec`) returns the `GrammarSpec`
+without touching an instance. The spec is plain data apart from its
+RegExp matchers, so it can be built once at startup and installed on as
+many engines as you need.
 
 ```js
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
+const { Tabnas } = require('@tabnas/parser')
+const { gbnfConvert } = require('@tabnas/gbnf')
 
-const j = new Tabnas().use(jsonic).use(Zon)
+const spec = gbnfConvert(`root ::= "yes" | "no"`)
 
-const manifest = j.parse(`.{
-    .name = "example",
-    .version = "0.0.1",
-    .minimum_zig_version = "0.14.0",
-    .dependencies = .{
-        .foo = .{
-            .url = "https://example.com/foo.tar.gz",
-            .hash = "1220deadbeef",
-        },
-    },
-    .paths = .{
-        "build.zig",
-        "src",
-    },
-}`)
+const a = new Tabnas().grammar(spec)
+const b = new Tabnas().grammar(spec)
 
-manifest // => { name: 'example', version: '0.0.1', minimum_zig_version: '0.14.0', dependencies: { foo: { url: 'https://example.com/foo.tar.gz', hash: '1220deadbeef' } }, paths: ['build.zig', 'src'] }
+a.parse('yes').rule // => 'root'
+b.parse('no').rule  // => 'root'
 ```
 
-## Parse numbers in every ZON base
+## Match case-insensitively
 
-Numbers accept decimal, hex, octal, binary, floats, and `_` digit
-separators:
+GBNF has no case-insensitive literal — that is an ABNF feature, and it
+is the difference most likely to bite when porting a grammar in either
+direction. Spell the alternatives out as character classes:
 
 ```js
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
+const { Tabnas } = require('@tabnas/parser')
+const { gbnf } = require('@tabnas/gbnf')
 
-const j = new Tabnas().use(jsonic).use(Zon)
+const tn = new Tabnas({ plugins: [gbnf] })
+tn.gbnf(`root ::= [yY] [eE] [sS]`)
 
-j.parse('0x2a')      // => 42
-j.parse('0o52')      // => 42
-j.parse('0b101010')  // => 42
-j.parse('1_000_000') // => 1000000
-j.parse('3.14')      // => 3.14
+tn.parse('yes').src // => 'yes'
+tn.parse('YES').src // => 'YES'
+tn.parse('Yes').src // => 'Yes'
 ```
 
-## Parse character literals as code points
+## Handle whitespace
 
-By default Zig char literals (`'A'`, `'\n'`, `'\u{1F600}'`) parse as
-one-character strings. Set `charAsNumber: true` to receive numeric
-code points instead:
+Nothing is skipped for you. Declare an explicit whitespace rule and
+thread it through the places whitespace is allowed — the idiom
+llama.cpp's own grammars use:
+
+```gbnf
+ws ::= | " " | "\n" [ \t]{0,20}
+```
+
+That reads: nothing, or one space, or a newline followed by up to twenty
+spaces or tabs. The first alternative is empty, which is legal and
+deliberate. Prefer the **bounded** `{0,20}` over an unbounded `*` in any
+grammar you will hand to a sampler; unbounded whitespace is a documented
+sampling anti-pattern, and it makes the grammar harder for a
+deterministic parser too.
+
+## Test one rule instead of the whole grammar
+
+`start` picks a different entry point, which is useful when you are
+debugging a sub-rule. `root` must still be defined — that is part of the
+notation — but it does not have to be where the parse begins.
 
 ```js
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
+const { Tabnas } = require('@tabnas/parser')
+const { gbnfConvert } = require('@tabnas/gbnf')
 
-const j = new Tabnas().use(jsonic).use(Zon, { charAsNumber: true })
+const spec = gbnfConvert(`
+root ::= item+
+item ::= [a-z]+
+`, { start: 'item' })
 
-j.parse("'A'")          // => 65
-j.parse("'\\n'")        // => 10
-j.parse("'\\u{1F600}'") // => 128512
+const tn = new Tabnas().grammar(spec)
+tn.parse('abc').rule // => 'item'
 ```
 
-## Tag enum literals to tell them apart from strings
+## Read a compile error
 
-Without options, an enum-literal value like `.red` becomes the plain
-string `'red'` — indistinguishable from `"red"` in the parsed tree.
-Set `enumTag` to wrap each enum value in a one-key object so you can
-tell which was which:
+Three things can go wrong, and the class tells you which.
+
+**`GbnfParseError`** — the text is not GBNF. Carries `.line` and
+`.column` where the underlying parse failed, and `.cause` with the
+engine's own error.
+
+**`GbnfCompileError`** — the text *is* GBNF, but does not describe a
+grammar this compiler can build. Carries `.rule`, the rule responsible.
+Three causes:
+
+- no rule named `root`;
+- a reference to a rule that is never defined;
+- a tokenizer-token terminal (`<think>`, `<[1000]>`, `!</think>`).
 
 ```js
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
+const { parseGbnf } = require('@tabnas/gbnf')
 
-const j = new Tabnas().use(jsonic).use(Zon, { enumTag: '$enum' })
+const classify = (src) => { try { parseGbnf(src); return 'ok' } catch (e) { return e.name } }
 
-j.parse('.{ .kind = .red, .label = "red" }') // => { kind: { $enum: 'red' }, label: 'red' }
+classify(`root ::= "a"`)      // => 'ok'
+classify(`greeting ::= "hi"`) // => 'GbnfCompileError'
+classify(`root ::= nope`)     // => 'GbnfCompileError'
+classify(`root ::= <think>`)  // => 'GbnfCompileError'
+classify(`root ::= "\\q"`)    // => 'GbnfParseError'
 ```
 
-The tag name is yours to choose — use whatever key your consumers
-expect.
+The tokenizer-token case is a policy, not an oversight: those terminals
+match a sampler's vocabulary entries rather than characters, so there is
+no faithful text semantics. See
+[known-gaps.md](known-gaps.md#1-tokenizer-token-terminals-are-rejected-by-policy).
 
-## Read multi-line Zig strings
+## Inspect the intermediate representation
 
-Consecutive lines prefixed with `\\` become a single string, joined
-with `\n` (the `\\` prefix is stripped from each line):
+`parseGbnf` stops after the notation layer and hands back the grammar
+IR — the same `Grammar` that `@tabnas/bnf` compiles. Useful for writing
+your own analysis, or for seeing exactly how a construct lowered.
 
 ```js
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
+const { parseGbnf } = require('@tabnas/gbnf')
 
-const j = new Tabnas().use(jsonic).use(Zon)
-
-const doc = j.parse(`.{
-  .description =
-    \\\\first line
-    \\\\second line
-  ,
-}`)
-
-doc // => { description: 'first line\nsecond line' }
+const g = parseGbnf(`root ::= [a-z]+`)
+g.productions[0].name              // => 'root'
+g.productions[0].alts[0][0].kind   // => 'plus'
 ```
 
-## Handle a parse error
+## When a grammar compiles but will not parse
 
-ZON deliberately rejects non-ZON input — a bare `{` opener, for
-instance. A failed parse throws the engine's parse error; catch it and
-read its fields:
+Compilation checks the notation; parsing exercises the engine's
+tokenising lexer, and that is where the remaining limits live. The
+failure almost always has one of two shapes, both covered in
+[known-gaps.md](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing):
 
-```js
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
+- a repetition (`X?`, `X*`, `X+`) followed by a **character class**, in a
+  grammar whose classes overlap each other or a literal's first
+  character;
+- two terminals that can both match at the same position, where the
+  class wins because match matchers run before the fixed matcher.
 
-const j = new Tabnas().use(jsonic).use(Zon)
+Things worth trying, in order:
 
-let threw = false
-try {
-  j.parse('{ a = 1 }') // not ZON: bare { is rejected
-} catch (err) {
-  threw = true
-  // err.code, err.row, err.col, err.message are available here.
-}
-threw // => true
-```
+1. **Make the classes disjoint.** `[a-z]` beside `[a-z0-9_]` is the
+   usual culprit; rewriting the second as `([a-z] | [0-9_])` costs
+   nothing and lets the compiler lex classes eagerly, which removes the
+   first failure shape entirely.
+2. **Give the repetition a literal terminator** the class does not
+   contain. Literals are matched by the fixed matcher, which is not
+   gated by the active rule.
+3. **Check for ambiguity.** If the grammar needs to backtrack over an
+   optional to succeed (`[a-h]? [1-8]? [a-h] [1-8]`), no amount of
+   lexer tuning will help — the engine runs one rule stack.
 
-## Re-enable strict JSON while the plugin is loaded
-
-Every grammar alternate the plugin adds carries the group tag `zon`.
-To switch those alts off — restoring the plain jsonic grammar while
-the plugin stays registered — exclude that tag:
-
-```typescript
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
-
-const j = new Tabnas().use(jsonic).use(Zon).options({
-  rule: { exclude: 'zon' },
-})
-```
-
-This is rarely useful — you would normally just not load the plugin —
-but it is the supported way to peel the ZON layer back off.
+If none of that applies, the honest answer may be that the grammar is
+outside the deterministic subset. It will still constrain a sampler
+correctly; it just cannot be validated offline here.

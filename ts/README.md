@@ -1,67 +1,97 @@
-# @tabnas/zon
+# @tabnas/gbnf
 
-A [Tabnas](https://github.com/tabnas/parser) grammar plugin that parses
-[Zig Object Notation (ZON)](https://ziglang.org/documentation/master/#ZON)
-text into objects, arrays, and scalar values. ZON is the anonymous-struct
-data format used for Zig `build.zig.zon` manifests.
+GBNF grammar compiler for the
+[`tabnas`](https://github.com/tabnas/parser) parser.
+
+Takes GBNF source (the
+[llama.cpp](https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md)
+dialect — `::=` and `|`, case-sensitive literals, a mandatory `root`)
+and emits a tabnas `GrammarSpec`. Installed on an engine, the spec
+parses inputs in that grammar and builds a `{rule, src, kids}` AST — so
+you can answer "does this string match my grammar?" without loading a
+model.
 
 ## Install
 
 ```bash
-npm install @tabnas/parser @tabnas/jsonic @tabnas/zon
+npm install @tabnas/parser @tabnas/bnf @tabnas/gbnf
 ```
 
-Requires `@tabnas/parser` >= 2 and `@tabnas/jsonic` >= 2 as peer
-dependencies.
-
-## One example
-
-The plugin layers onto a Tabnas engine that already has the jsonic
-grammar:
+## Use
 
 ```js
-import { Tabnas } from '@tabnas/parser'
-import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '@tabnas/zon'
+const { Tabnas } = require('@tabnas/parser')
+const { gbnf } = require('@tabnas/gbnf')
 
-const j = new Tabnas().use(jsonic).use(Zon)
+const tn = new Tabnas({ plugins: [gbnf] })
+tn.gbnf(`root ::= "hi" | "hello"`)
 
-j.parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
-j.parse('.{ 1, 2, 3 }')                     // => [1, 2, 3]
+tn.parse('hi') // => ({ rule: 'root', src: 'hi', kids: [] })
 ```
 
-Build the instance once and reuse it — constructing the grammar is the
-expensive part.
+## Exact by construction
+
+GBNF is scannerless: the grammar accounts for every character, including
+the spaces. The engine's defaults are JSON-shaped and lenient, so the
+emitted spec turns them off — empty ignore set, no space/line/comment/
+string/number/text matchers. What is left is the grammar's own fixed
+tokens (its literals) and match tokens (its classes).
+
+```js
+const { Tabnas } = require('@tabnas/parser')
+const { gbnf } = require('@tabnas/gbnf')
+
+const tn = new Tabnas({ plugins: [gbnf] })
+tn.gbnf(`root ::= "a" "b"`)
+
+tn.parse('ab').src // => 'ab'
+
+let rejected = false
+try { tn.parse('a b') } catch (e) { rejected = true }
+rejected // => true
+```
+
+Whether the *empty* input is in the language is settled at compile time,
+because the engine short-circuits `''` before any rule runs: the
+compiler walks the IR for a derivation of the empty string from `root`
+and emits `lex: { empty: … }` to match.
+
+```js
+const { gbnfConvert } = require('@tabnas/gbnf')
+
+gbnfConvert(`root ::= "x"`).options.lex  // => ({ empty: false })
+gbnfConvert(`root ::= "x"*`).options.lex // => ({ empty: true })
+```
+
+## What this package owns
+
+Only the notation. The compilation itself — desugaring repetition into
+helper rules, left-recursion elimination, probe dispatch, literal
+lifting, token allocation, first-set analysis, chain emission — lives in
+[`@tabnas/bnf`](https://github.com/tabnas/bnf), shared with the ABNF and
+EBNF front-ends:
+
+```
+GBNF text ──parseGbnf──▶ Grammar IR ──emitGrammarSpec──▶ GrammarSpec
+```
+
+`src/converter.ts` is the first arrow (a tabnas grammar that reads GBNF,
+plus the terminal decoders and the lexer settings the spec carries);
+`src/gbnf.ts` is the plugin facade.
 
 ## Documentation
 
-Full documentation follows the [Diátaxis](https://diataxis.fr)
-framework:
+Four-quadrant [Diátaxis](https://diataxis.fr) docs:
 
-- [Tutorial](doc/tutorial.md) — a guided first parse, start to finish.
-- [How-to guide](doc/guide.md) — short recipes for individual tasks.
-- [Reference](doc/reference.md) — the public API, every option, and the
-  complete ZON syntax accepted.
-- [Concepts](doc/concepts.md) — how the plugin reshapes the engine, and
-  why.
-
-For the Go port, see [`../go/README.md`](../go/README.md).
-
-## Grammar diagram
-
-The grammar is defined in the top-level
-[`zon-grammar.jsonic`](../zon-grammar.jsonic) and embedded into this
-implementation (and the Go port) by [`embed-grammar.js`](embed-grammar.js)
-during the build.
-
-The installed grammar as a railroad/syntax diagram, generated with
-[`@tabnas/railroad`](https://github.com/tabnas/railroad):
-
-![zon grammar railroad diagram](doc/grammar.svg)
-
-A vertical ASCII version is in [`doc/grammar.txt`](doc/grammar.txt).
+- [tutorial.md](doc/tutorial.md) — learning-oriented: zero to a working
+  parser, step by step.
+- [guide.md](doc/guide.md) — task-oriented recipes for real problems.
+- [reference.md](doc/reference.md) — the exact API and GBNF syntax
+  supported.
+- [concepts.md](doc/concepts.md) — how the compiler works and why.
+- [known-gaps.md](doc/known-gaps.md) — where this and llama.cpp diverge,
+  and what causes each divergence.
 
 ## License
 
-Copyright (c) 2025 Richard Rodger and other contributors,
-[MIT License](LICENSE).
+MIT. Copyright (c) Richard Rodger.

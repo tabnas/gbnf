@@ -1,6 +1,4 @@
-# Syntax highlighting for .jsonic files
-*.jsonic linguist-language=CUE
-
-# Preserve line endings in test fixtures - some tests depend on specific line endings
-test/fixtures/*.csv binary
-test/fixtures/*.json binary
+# The conformance corpus is llama.cpp's own bytes, and a GBNF rule ends
+# at a newline: never let autocrlf rewrite these. `-text` (rather than
+# `binary`) keeps them diffable, which matters when upstream changes one.
+test/corpus/*.gbnf -text
