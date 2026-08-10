@@ -204,8 +204,30 @@ describe('gbnf', () => {
 
 
     it('lowers negation', () => {
+      // `u` even though no astral code point is written: the class
+      // matches the *complement* of its members, and that complement
+      // contains every astral code point.
       assert.deepEqual(parseGbnf('root ::= [^\\n]').productions[0].alts[0][0],
-        { kind: 'regex', pattern: '[^\\u000a]', flags: '' })
+        { kind: 'regex', pattern: '[^\\u000a]', flags: 'u' })
+    })
+
+
+    it('matches an astral code point as one character, not two units', () => {
+      // GBNF terminals are Unicode code points by definition, so any
+      // matcher that can reach beyond the BMP has to run in `u` mode.
+      // japanese.gbnf is BMP-only, which is why this went unnoticed.
+      const cases = [
+        ['.', parseGbnf('root ::= .').productions[0].alts[0][0]],
+        ['[^\\n]', parseGbnf('root ::= [^\\n]').productions[0].alts[0][0]],
+      ]
+      for (const [what, el] of cases) {
+        const re = new RegExp('^' + el.pattern, el.flags)
+        const m = '\u{1F600}'.match(re)
+        assert.ok(m, `${what} should match an astral character`)
+        assert.equal(
+          m[0], '\u{1F600}',
+          `${what} must consume the whole character, not one surrogate`)
+      }
     })
 
 
@@ -237,8 +259,21 @@ describe('gbnf', () => {
 
 
     it('lowers . to any-character', () => {
+      // `u` so "any single character" means one code point, matching
+      // llama.cpp's LLAMA_GRETYPE_CHAR_ANY, rather than one UTF-16 unit.
       assert.deepEqual(parseGbnf('root ::= .').productions[0].alts[0][0],
-        { kind: 'regex', pattern: '[\\s\\S]', flags: '' })
+        { kind: 'regex', pattern: '[\\s\\S]', flags: 'u' })
+    })
+
+
+    it('accepts only llama.cpp whitespace inside repetition braces', () => {
+      // `parse_space` takes space, tab, CR and LF. JavaScript's `\s`
+      // also admits NBSP and friends, which would compile grammars
+      // llama.cpp rejects.
+      assert.doesNotThrow(() => parseGbnf('root ::= "x"{ 1 }'))
+      assert.doesNotThrow(() => parseGbnf('root ::= "x"{\t1,2\t}'))
+      // U+00A0 NO-BREAK SPACE: in JavaScript's \s, not in parse_space.
+      assert.throws(() => parseGbnf('root ::= "x"{\u00a01}'))
     })
 
 

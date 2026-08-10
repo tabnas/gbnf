@@ -201,6 +201,26 @@ ranges into surrogate-pair alternations, or the runtimes agree on a
 flag-translation convention. BMP classes — everything the llama.cpp
 corpus uses, including `japanese.gbnf`'s CJK blocks — are unaffected.
 
+**Which matchers run in `u` mode**, since it is not only the classes
+that spell out an astral code point. The rule is that Unicode mode
+follows what a matcher *can match*, not what was written in it:
+
+| Written | Emitted flags | Why |
+|---|---|---|
+| `[a-z]`, `[NBKQR]` | none | BMP members only |
+| `[\U0001F600-\U0001F64F]` | `u` | astral member, needs `\u{…}` |
+| `[^\n]` | `u` | the **complement** of the members, which contains every astral code point |
+| `.` | `u` | any character, astral included |
+
+The last two were emitted without `u` until this was corrected, so `.`
+consumed one UTF-16 surrogate of `😀` rather than the whole character,
+and `.{2}` accepted a single astral character as two. GBNF terminals are
+Unicode code points by definition, so that was simply wrong. It went
+unnoticed because `japanese.gbnf` — the only non-ASCII grammar in the
+corpus — is entirely BMP. Note this interacts with the Go gap above: a
+negated class now carries `u`, so `[^\n]` joins the astral classes in
+having no serialisable form the Go runtime can load today.
+
 ---
 
 ## 6. The empty input is decided at compile time

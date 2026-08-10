@@ -116,6 +116,23 @@ type RawProduction = { name: string; alts: RawSequence[] }
 //                                          `ws ::= | " " | "\n"`)
 //   elem    = atom POST?
 //   atom    = NM | GS | CC | DOT | TOK | '(' alts ')'
+
+
+// Whitespace exactly as llama.cpp's `parse_space` defines it. NOT
+// JavaScript's `\s`, which also admits NBSP, vertical tab, form feed
+// and the Unicode space separators — using it made `root ::= "x"{ 1}`
+// with a U+00A0 compile here while llama.cpp rejects it. For a package
+// whose purpose is conformance, accepting more than the notation does
+// is the wrong direction to err in.
+const SP = '[ \\t\\r\\n]'
+
+// `{m}` / `{m,}` / `{m,n}`, with llama.cpp-legal spacing throughout.
+const REP = '\\{' + SP + '*([0-9]+)' + SP + '*(?:,' + SP + '*([0-9]*)' +
+  SP + '*)?\\}'
+// The same, with the counts non-capturing — for the run matcher, which
+// only needs to find the extent.
+const REP_NC = REP.replace(/\(\[0-9\]/g, '(?:[0-9]')
+
 const gbnfRules: Record<
   string,
   {
@@ -264,9 +281,12 @@ const gbnfRules: Record<
         s: '#DOT',
         // `.` is llama.cpp's LLAMA_GRETYPE_CHAR_ANY: any single
         // character, newlines included. `[\s\S]` says that without
-        // needing the `s` flag (which RE2 spells differently).
+        // needing the `s` flag (which RE2 spells differently). The `u`
+        // flag makes "one character" mean one code point rather than
+        // one UTF-16 unit, so `.` consumes an emoji whole and `.{2}`
+        // does not accept a single astral character as two.
         a: (r: Rule) => {
-          r.node = { kind: 'regex', pattern: '[\\s\\S]', flags: '' }
+          r.node = { kind: 'regex', pattern: '[\\s\\S]', flags: 'u' }
         },
       },
       {
@@ -355,8 +375,9 @@ function getGbnfParser(): (src: string) => RawProduction[] {
         // than one operator lets `elem` stay loop-free; see the note
         // there. Whitespace inside the run is llama.cpp-legal
         // (`parse_space` runs after each operator).
-        '#POST':
-          /^(?:[*+?]|\{\s*[0-9]+\s*(?:,\s*[0-9]*\s*)?\})(?:\s*(?:[*+?]|\{\s*[0-9]+\s*(?:,\s*[0-9]*\s*)?\}))*/,
+        '#POST': new RegExp(
+          '^(?:[*+?]|' + REP_NC + ')(?:' + SP +
+          '*(?:[*+?]|' + REP_NC + '))*'),
         // Tokenizer-token terminal, optionally negated.
         '#TOK': /^!?<(?:\\[\s\S]|[^>\\])*>/,
         // A rule name. llama.cpp's `is_word_char` is
@@ -746,7 +767,15 @@ function decodeCharClass(raw: string): GbnfElement {
   return {
     kind: 'regex',
     pattern: '[' + (negated ? '^' : '') + parts.join('') + ']',
-    flags: astral ? 'u' : '',
+    // Unicode mode is decided by what the matcher can MATCH, not by
+    // what was written in the class. A negated class matches the
+    // complement of its members, and that complement always contains
+    // every astral code point — so `[^\n]` needs `u` just as much as a
+    // class with an astral member does. Without it the matcher consumes
+    // one UTF-16 surrogate rather than one character, and `X{2}` wrongly
+    // accepts a single astral character as two. GBNF terminals are
+    // Unicode code points by definition.
+    flags: (negated || astral) ? 'u' : '',
   }
 }
 
@@ -763,7 +792,7 @@ function classEscape(cp: number): string {
 // Apply a run of postfix operators, left to right, so `x*?` is
 // `(x*)?` — the same order llama.cpp's sequence loop applies them in.
 function applyPostfix(item: RawElement, src: string): RawElement {
-  const op = /[*+?]|\{\s*([0-9]+)\s*(?:,\s*([0-9]*)\s*)?\}/g
+  const op = new RegExp('[*+?]|' + REP, 'g')
   let out = item
   let m: RegExpExecArray | null
   while ((m = op.exec(src)) !== null) {
