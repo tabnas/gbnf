@@ -15,7 +15,7 @@
  *       its language; json_arr's separator is literally `",\n"`).
  *    3. The EXPECTED_FAILURES fail, exactly as recorded.
  *
- *  All seven grammars accept and reject real input end to end —
+ *  All eight grammars accept and reject real input end to end —
  *  keyword statements, funcCall expressions, keyword-prefixed
  *  identifiers included. One shape remains out of reach (chess's
  *  stacked optional prefixes, `Nf3`); it is written up in

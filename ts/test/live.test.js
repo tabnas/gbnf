@@ -133,6 +133,18 @@ describe('live', () => {
   })
 
 
+  // The census is pinned, the way corpus.test.js pins its grammar list.
+  // Both loops above iterate CORPUS.cases, so a case quietly vanishing
+  // from the JSON would emit one fewer test and leave the suite green —
+  // shrinking the coverage this file's headline number claims. The
+  // uniqueness half catches a duplicated name, which would otherwise
+  // hold the count at 70 while losing a case.
+  it('the live corpus is exactly the 70 cases on record', () => {
+    assert.equal(CORPUS.cases.length, 70)
+    assert.equal(new Set(CORPUS.cases.map((c) => c.name)).size, 70)
+  })
+
+
   it('every sampled case exists in the corpus', () => {
     const names = new Set(CORPUS.cases.map((c) => c.name))
     for (const name of Object.keys(SAMPLES)) {

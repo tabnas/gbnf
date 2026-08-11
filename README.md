@@ -203,14 +203,19 @@ which is the one thing this tool must never do.
 
 The corpus is llama.cpp's own `grammars/` directory, copied verbatim
 into [`test/corpus/`](test/corpus/) — `json.gbnf`, `json_arr.gbnf`,
-`arithmetic.gbnf`, `c.gbnf`, `chess.gbnf`, `japanese.gbnf`,
-`list.gbnf`. All seven **compile**. Six of the seven parse real input
-end to end.
+`arithmetic.gbnf`, `c.gbnf`, `chess.gbnf`, `english.gbnf`,
+`japanese.gbnf`, `list.gbnf`. All eight **compile**, all eight accept
+real input, and all eight reject near-miss invalid input:
+`ts/test/corpus.test.js` grades both directions.
 
-The gaps are not papered over: `ts/test/corpus.test.js` asserts each
-expected failure explicitly, so if one starts working the suite goes
-red. They come from the seam between a scannerless notation and a
-tokenising engine, and are written up mechanism-by-mechanism in
+A second corpus in [`test/live/`](test/live/) holds the 70 expected
+outputs of llama.cpp's JSON-schema-to-grammar converter — the shape
+tools actually feed a sampler. All 70 compile and parse.
+
+One sample remains out of reach: chess's `Nf3`, whose stacked optional
+prefixes need backtracking. It is asserted as an expected failure, so
+if it starts working the suite goes red. The mechanism, and everything
+that used to be on this list, is written up in
 [`ts/doc/known-gaps.md`](ts/doc/known-gaps.md) — read that before
 trusting a "this grammar does not parse" result.
 

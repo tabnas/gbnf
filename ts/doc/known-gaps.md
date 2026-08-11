@@ -94,7 +94,7 @@ no class contains the first character of any string literal.
 negotiated lexing instead. Pass `{ eagerClasses: false }` to turn the
 eager mitigation off.
 
-**Status:** resolved for the whole corpus. All seven llama.cpp grammars
+**Status:** resolved for the whole corpus. All eight llama.cpp grammars
 compile, accept their own valid samples — keyword statements, funcCall
 expressions and keyword-prefixed identifiers included — and reject
 near-miss invalid ones (`ts/test/corpus.test.js` pins both directions).
