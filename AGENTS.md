@@ -23,9 +23,10 @@ elimination, tail-repeat rewriting, probe dispatch, literal lifting,
 token allocation, first-set analysis, `$stepN` chain emission.
 `@tabnas/abnf` (RFC 5234) and `@tabnas/ebnf` are the sibling front-ends.
 
-**This repo owns exactly two things:** the notation (GBNF text → IR) and
-the lexer settings the emitted spec carries, because scannerlessness is
-a property of the notation rather than of the IR.
+**This repo owns exactly two things:** the notation — GBNF text ⇄ IR,
+both directions (`parseGbnf` / `renderGbnf`) — and the lexer settings
+the emitted spec carries, because scannerlessness is a property of the
+notation rather than of the IR.
 
 **The value proposition**: GBNF is consumed by llama.cpp, XGrammar (and
 therefore vLLM and SGLang), KoboldCpp, LocalAI and node-llama-cpp, and
@@ -57,10 +58,12 @@ or narrows an accepted language defeats the purpose stated there.
 | [`ts/src/converter.ts`](ts/src/converter.ts) | The front-end. `gbnfRules` (the tabnas meta-grammar that reads GBNF), the terminal decoders, the validation passes, and the emitted lexer settings. |
 | [`ts/src/gbnf.ts`](ts/src/gbnf.ts) | Plugin facade — `tn.gbnf(src)` / `tn.gbnf.toSpec(src)`, plus the bare exports and `VERSION`. |
 | [`ts/src/cli.ts`](ts/src/cli.ts) | `gbnf-check`, the validator CLI (`bin` in `package.json`). Compile a grammar, check samples, exit 0/1/2/3; `--json` for a stable machine-readable report. |
+| [`ts/src/render.ts`](ts/src/render.ts) | `renderGbnf` — the inverse arrow, grammar IR → GBNF text. Fixed point with `parseGbnf`; refuses what GBNF cannot say; expands ABNF's case-insensitive literals exactly. With `@tabnas/abnf` (same IR), the ABNF → GBNF bridge. |
 | [`ts/test/gbnf.test.js`](ts/test/gbnf.test.js) | The main suite: IR shape per construct, escapes, classes, repetition, errors, exact lexing, end-to-end parses, plugin surface. |
 | [`ts/test/corpus.test.js`](ts/test/corpus.test.js) | The llama.cpp conformance corpus — compile-all, plus accept / reject / expected-failure samples. |
 | [`ts/test/live.test.js`](ts/test/live.test.js) | The live corpus — llama.cpp's 70 expected JSON-schema-to-grammar outputs, compiled and parsed. |
 | [`ts/test/cli.test.js`](ts/test/cli.test.js) | The CLI, spawned as a child process — exit codes, both report formats, stdin in both roles, the trailing-newline hint. |
+| [`ts/test/render.test.js`](ts/test/render.test.js) | The renderer — parse→render→parse fixed point over BOTH corpora, the refused constructs, the case-insensitive expansion, the ABNF bridge end to end. |
 | [`ts/test/doc-examples.test.js`](ts/test/doc-examples.test.js) | Runs every ` ```js ` fence in the repo's markdown that carries a `// =>` assertion. |
 | [`ts/test/version.test.js`](ts/test/version.test.js) | The exported `VERSION` against `ts/package.json`. |
 | [`test/corpus/`](test/corpus/) | llama.cpp's own `grammars/*.gbnf`, verbatim and **committed**. See the README there for provenance. |
@@ -233,6 +236,11 @@ module proxy.
   runs only in `ts/`. The engine gap is `@tabnas/parser`'s to close,
   not this repo's — the same fix-it-upstream principle alignment rule 2
   states for `@tabnas/bnf`.
-- **A renderer** (engine → GBNF), the mirror of `@tabnas/debug`'s ABNF
-  round-trip. It would give an ABNF ⇄ GBNF bridge for free, and belongs
-  beside the ABNF renderer in `@tabnas/debug`.
+- **The Go renderer.** `renderGbnf` (IR → GBNF text) is TS-only,
+  `ts/` being canonical; the Go port follows.
+
+The renderer that used to be on this list lives here now, by decision:
+emission is the notation's own inverse (this package owns "GBNF text →
+IR", so it owns "IR → GBNF text"), not `@tabnas/debug`'s
+engine-instance reconstruction. See
+[`ts/doc/concepts.md` §"Rendering, and the ABNF bridge"](ts/doc/concepts.md#rendering-and-the-abnf-bridge).

@@ -28,6 +28,12 @@ import {
   GbnfConvertOptions,
 } from './converter'
 
+import {
+  renderGbnf,
+  GbnfRenderError,
+  GbnfRenderOptions,
+} from './render'
+
 
 // Plugin entry point. Decorates the instance with a callable `gbnf`
 // member that converts and installs a grammar, plus `gbnf.toSpec` for
@@ -64,14 +70,16 @@ export {
   gbnfConvert,
   toSpec,
   parseGbnf,
+  renderGbnf,
   emitGrammarSpec,
   eliminateLeftRecursion,
   gbnfRules,
   GbnfParseError,
   GbnfCompileError,
+  GbnfRenderError,
 }
 
-export type { GbnfConvertOptions }
+export type { GbnfConvertOptions, GbnfRenderOptions }
 
 
 // VERSION is this package's version. It MUST equal package.json

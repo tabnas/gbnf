@@ -335,6 +335,36 @@ accepts a superset of llama.cpp's line-break rules — see
 [known-gaps.md](known-gaps.md), and check a grammar with
 `llama-gbnf-validator` before shipping it to a sampler.
 
+## Rendering, and the ABNF bridge
+
+The notation arrow runs both ways. `renderGbnf` writes a grammar IR
+back out as GBNF text — and because `@tabnas/abnf` parses into the
+same IR, the pair is an ABNF → GBNF bridge: any grammar a sibling
+front-end can read becomes a `.gbnf` file a sampler can consume.
+
+```
+ABNF text ──parseAbnf──▶ Grammar IR ──renderGbnf──▶ GBNF text
+```
+
+The renderer holds the same standard as the parser, in reverse. For a
+grammar that came from GBNF, `parseGbnf(renderGbnf(g))` reproduces the
+IR exactly — a fixed point graded over both corpora — so rendering
+chooses spellings, never meanings. Constructs GBNF cannot express (an
+engine lexer token, an ABNF prose element, a non-class regex) are
+refused with `GbnfRenderError` rather than approximated. The one exact
+expansion is performed: ABNF's case-insensitive literals become
+equivalent class sequences (`"hi"` → `[hH] [iI]`), which accept
+precisely the same strings — GBNF's case-sensitivity means the
+insensitive direction has to be spelled out, and spelling it out is
+faithful where guessing would not be.
+
+Emission lives here, not in `@tabnas/debug`, because it is the
+notation's own inverse: this package owns "GBNF text → IR", so it owns
+"IR → GBNF text". Debug's renderer works at a different level — it
+reconstructs ABNF from a *compiled engine instance* — and its GBNF
+counterpart, engine → GBNF, remains possible there for grammars that
+never had an IR.
+
 ## What is not here yet
 
 - **Go parse-level parity.** The Go front-end is implemented — it reads
@@ -342,13 +372,10 @@ accepts a superset of llama.cpp's line-break rules — see
   corpus — but the Go engine has no negotiated lexing (`lex.relex`),
   so accept/reject conformance grading runs only in TypeScript. That
   is an engine gap, recorded in `@tabnas/parser`'s own
-  `doc/differences.md`, and it is where the fix belongs.
-- **A renderer.** Engine → GBNF export, the mirror of
-  `@tabnas/debug`'s ABNF round-trip, would turn any tabnas grammar into
-  a constraint file for a sampler — and, combined with `@tabnas/abnf`,
-  give an ABNF ⇄ GBNF bridge. It belongs beside the ABNF renderer in
-  `@tabnas/debug`.
+  `doc/differences.md`, and it is where the fix belongs. The renderer
+  is TS-only for now too, `ts/` being canonical.
 
-The validator CLI that used to be on this list is here now:
-`gbnf-check`, a thin wrapper over `gbnfConvert` plus `tn.parse` — see
-[reference.md](reference.md#command-line-gbnf-check).
+The validator CLI and the renderer that used to be on this list are
+here now: `gbnf-check`
+([reference.md](reference.md#command-line-gbnf-check)) and
+`renderGbnf` (above).
