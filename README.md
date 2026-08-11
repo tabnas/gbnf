@@ -230,7 +230,8 @@ real input, and all eight reject near-miss invalid input:
 
 A second corpus in [`test/live/`](test/live/) holds the 70 expected
 outputs of llama.cpp's JSON-schema-to-grammar converter — the shape
-tools actually feed a sampler. All 70 compile and parse.
+tools actually feed a sampler. All 70 compile, and every one is graded
+in both directions — accepts valid JSON, rejects near-miss invalid.
 
 One sample remains out of reach: chess's `Nf3`, whose stacked optional
 prefixes need backtracking. It is asserted as an expected failure, so
@@ -259,7 +260,7 @@ arrow's output needs to behave scannerlessly.
 | Path | Description |
 |---|---|
 | [`ts/`](ts/) | TypeScript / JavaScript (`@tabnas/gbnf`). Canonical. |
-| [`go/`](go/) | The Go port of the front-end. Reads `.gbnf` text and compiles the corpus (less `english.gbnf`); parse-level conformance grading stays TS-only until the Go engine implements negotiated lexing (`lex.relex`). See [`go/README.md`](go/README.md). |
+| [`go/`](go/) | The Go port of the front-end. Reads `.gbnf` text and compiles the whole corpus; parse-level conformance grading stays TS-only until the Go engine implements negotiated lexing (`lex.relex`). See [`go/README.md`](go/README.md). |
 
 ## Documentation
 

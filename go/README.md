@@ -11,9 +11,8 @@ ignore set, default matchers off, `lex.empty` computed from the IR.
 The same validation passes as the TypeScript front-end run here:
 mandatory `root`, defined references, tokenizer-token terminals
 rejected by policy. The suite mirrors `ts/test/gbnf.test.js` and
-compiles seven of the eight llama.cpp corpus grammars in
-[`../test/corpus/`](../test/corpus/) — `english.gbnf` is not yet in
-the Go census.
+compiles all eight llama.cpp corpus grammars in
+[`../test/corpus/`](../test/corpus/).
 
 ```go
 import (

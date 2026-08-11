@@ -247,13 +247,14 @@ func TestDiagnosticsSayGbnf(t *testing.T) {
 	}
 }
 
-// The seven llama.cpp reference grammars. Every one must COMPILE; what
+// The eight llama.cpp reference grammars. Every one must COMPILE; what
 // they then accept is graded by the TypeScript corpus test, whose known
 // gaps are documented in ts/doc/known-gaps.md and apply here too.
 func TestCorpusCompiles(t *testing.T) {
 	dir := filepath.Join("..", "test", "corpus")
 	names := []string{
-		"arithmetic", "c", "chess", "japanese", "json", "json_arr", "list",
+		"arithmetic", "c", "chess", "english", "japanese", "json", "json_arr",
+		"list",
 	}
 	for _, name := range names {
 		src, err := os.ReadFile(filepath.Join(dir, name+".gbnf"))

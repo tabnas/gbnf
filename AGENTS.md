@@ -61,7 +61,8 @@ files, copied verbatim at commit
 All eight also **parse real input** end to end, and reject near-miss
 invalid input — both directions are graded. A second corpus,
 [`test/live/`](test/live/), holds the 70 expected outputs of
-llama.cpp's JSON-schema-to-grammar converter; all 70 compile and parse
+llama.cpp's JSON-schema-to-grammar converter; all 70 compile, and all
+70 are sampled in both directions, a census the suite itself pins
 (`ts/test/live.test.js`).
 
 Exactly one sample is recorded as an expected failure:
@@ -199,8 +200,7 @@ module proxy.
   front-end has no `markClassesEager` port, so accept/reject conformance
   runs only in `ts/`. The engine gap is `@tabnas/parser`'s to close,
   not this repo's — the same fix-it-upstream principle alignment rule 2
-  states for `@tabnas/bnf`. `english.gbnf` is also missing from the Go
-  corpus census.
+  states for `@tabnas/bnf`.
 - **A renderer** (engine → GBNF), the mirror of `@tabnas/debug`'s ABNF
   round-trip. It would give an ABNF ⇄ GBNF bridge for free, and belongs
   beside the ABNF renderer in `@tabnas/debug`.
