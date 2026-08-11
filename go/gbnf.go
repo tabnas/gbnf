@@ -4,16 +4,18 @@
 // front-end for the tabnas parsing engine. It parses GBNF text into the
 // grammar IR that github.com/tabnas/bnf/go compiles.
 //
-// PORT STATUS: not yet implemented. The TypeScript implementation is
-// canonical and lands first by design; this package currently exposes
-// only VERSION so the module builds and the release tooling has
-// something to check. The front-end — the meta-grammar, character-class
-// and escape decoders, exact-lexing configuration, and the rejection of
-// tokenizer-token terminals — is ported in a later change, mirroring
-// ts/src/converter.ts.
+// PORT STATUS: front-end implemented. ParseGbnf reads GBNF text —
+// character classes, escapes, postfix repetition, comments — and the
+// same validation passes as ts/src/converter.ts run here: mandatory
+// root, defined references, tokenizer-token terminals rejected by
+// policy. Gbnf/ToSpec/Install emit a spec carrying GBNF's exact lexing.
+// Accept/reject conformance GRADING stays in ts/, because the Go
+// engine has no negotiated lexing (lex.relex; see parser/go
+// doc/differences.md) and this front-end has no markClassesEager port.
 //
-// The dialect, and the scannerless limitations documented in
-// ts/doc/known-gaps.md, are the contract this port will be held to.
+// The TypeScript implementation is canonical. The dialect, and the
+// scannerless limitations documented in ts/doc/known-gaps.md, are the
+// contract this port is held to.
 package gbnf
 
 // VERSION is this module's version. It MUST equal ts/package.json

@@ -38,9 +38,11 @@ model. This can.
 |---|---|
 | [`ts/src/converter.ts`](ts/src/converter.ts) | The front-end. `gbnfRules` (the tabnas meta-grammar that reads GBNF), the terminal decoders, the validation passes, and the emitted lexer settings. |
 | [`ts/src/gbnf.ts`](ts/src/gbnf.ts) | Plugin facade — `tn.gbnf(src)` / `tn.gbnf.toSpec(src)`, plus the bare exports and `VERSION`. |
+| [`ts/src/cli.ts`](ts/src/cli.ts) | `gbnf-check`, the validator CLI (`bin` in `package.json`). Compile a grammar, check samples, exit 0/1/2/3; `--json` for a stable machine-readable report. |
 | [`ts/test/gbnf.test.js`](ts/test/gbnf.test.js) | The main suite: IR shape per construct, escapes, classes, repetition, errors, exact lexing, end-to-end parses, plugin surface. |
 | [`ts/test/corpus.test.js`](ts/test/corpus.test.js) | The llama.cpp conformance corpus — compile-all, plus accept / reject / expected-failure samples. |
 | [`ts/test/live.test.js`](ts/test/live.test.js) | The live corpus — llama.cpp's 70 expected JSON-schema-to-grammar outputs, compiled and parsed. |
+| [`ts/test/cli.test.js`](ts/test/cli.test.js) | The CLI, spawned as a child process — exit codes, both report formats, stdin in both roles, the trailing-newline hint. |
 | [`ts/test/doc-examples.test.js`](ts/test/doc-examples.test.js) | Runs every ` ```js ` fence in the repo's markdown that carries a `// =>` assertion. |
 | [`ts/test/version.test.js`](ts/test/version.test.js) | The exported `VERSION` against `ts/package.json`. |
 | [`test/corpus/`](test/corpus/) | llama.cpp's own `grammars/*.gbnf`, verbatim and **committed**. See the README there for provenance. |
@@ -59,7 +61,8 @@ files, copied verbatim at commit
 All eight also **parse real input** end to end, and reject near-miss
 invalid input — both directions are graded. A second corpus,
 [`test/live/`](test/live/), holds the 70 expected outputs of
-llama.cpp's JSON-schema-to-grammar converter; all 70 compile and parse
+llama.cpp's JSON-schema-to-grammar converter; all 70 compile, and all
+70 are sampled in both directions, a census the suite itself pins
 (`ts/test/live.test.js`).
 
 Exactly one sample is recorded as an expected failure:
@@ -182,17 +185,22 @@ Tests are plain `.js` under `ts/test/` — they run against `dist/`, so
 is committed.
 
 The repo-root [`Makefile`](Makefile) wraps the same targets
-(`make build|test|clean|reset`). Its `*-go` targets are stubs until the
-Go port lands.
+(`make build|test|clean|reset`). Its `build-go`/`test-go`/`clean-go`
+targets run the real Go toolchain against `go/`; only `publish-go`
+stays an echo, because Go releases are `go/v*` tags served by the
+module proxy.
 
 ## Not implemented yet
 
-- **The Go port.** The front-end compiles to a pure-data spec, so Go can
-  already *load* a grammar this package compiled; it cannot read `.gbnf`
-  text. `go/` still contains template scaffold and is a separate task.
+- **Go parse-level parity.** The Go front-end IS implemented
+  (`go/parser_gbnf.go` + `go/facade.go`, mirroring `ts/src/converter.ts`;
+  its suite compiles the corpus). What it cannot do yet is *grade* the
+  corpus: the Go engine has no negotiated lexing (`lex.relex` is
+  "TypeScript only" per `parser/go`'s `doc/differences.md`) and the
+  front-end has no `markClassesEager` port, so accept/reject conformance
+  runs only in `ts/`. The engine gap is `@tabnas/parser`'s to close,
+  not this repo's — the same fix-it-upstream principle alignment rule 2
+  states for `@tabnas/bnf`.
 - **A renderer** (engine → GBNF), the mirror of `@tabnas/debug`'s ABNF
   round-trip. It would give an ABNF ⇄ GBNF bridge for free, and belongs
   beside the ABNF renderer in `@tabnas/debug`.
-- **A validator CLI** (`gbnf-check <grammar> <sample…>`), a thin wrapper
-  over `gbnfConvert` + `tn.parse`. This is the shape most people asking
-  for offline GBNF validation actually want.

@@ -1,9 +1,10 @@
-# Build, test and publish the TypeScript (ts/) implementation.
+# Build, test and publish the TypeScript (ts/) implementation, and
+# build/test the Go port (go/).
 #
-# The Go port (go/) is not written yet: `@tabnas/gbnf` compiles GBNF to a
-# pure-data GrammarSpec, so Go can already LOAD a spec this compiler
-# produced, but it cannot read `.gbnf` text until the front-end is ported.
-# The go-* targets are kept, and are no-ops until then.
+# The aggregate targets (build/test/clean) stay ts-only so they never
+# demand a Go toolchain; run the -go targets explicitly. Go releases are
+# `go/v*` tags served by the module proxy (see .github/workflows), so
+# publish-go stays an echo.
 #
 # Local build/test resolve the unpublished @tabnas siblings via the
 # repo-set node_modules symlinks (admin/scripts/link.sh).
@@ -33,18 +34,18 @@ clean-ts:
 publish-ts: test-ts
 	cd ts && npm publish --access public
 
-# --- Go (module in go/) — not implemented yet ---
+# --- Go (module in go/) ---
 build-go:
-	@echo "go/: GBNF front-end not ported yet; nothing to build"
+	cd go && go build ./...
 
 test-go:
-	@echo "go/: GBNF front-end not ported yet; nothing to test"
+	cd go && go test ./...
 
 clean-go:
-	@echo "go/: GBNF front-end not ported yet; nothing to clean"
+	cd go && go clean
 
 publish-go:
-	@echo "go/: GBNF front-end not ported yet; nothing to publish"
+	@echo "go/: published by pushing a go/v* tag; see tags-go"
 
 # List published Go module tags, newest first.
 tags-go:
