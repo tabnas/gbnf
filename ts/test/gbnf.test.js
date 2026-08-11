@@ -657,13 +657,17 @@ describe('gbnf', () => {
 
     it('decides the empty input from the grammar', () => {
       // The engine short-circuits `''` before any rule runs, so whether
-      // it is in the language is settled at compile time.
-      assert.deepEqual(gbnfConvert('root ::= "x"').options.lex, { empty: false })
-      assert.deepEqual(gbnfConvert('root ::= "x"*').options.lex, { empty: true })
-      assert.deepEqual(gbnfConvert('root ::= "x"?').options.lex, { empty: true })
-      assert.deepEqual(gbnfConvert('root ::= "x"{0,3}').options.lex, { empty: true })
+      // it is in the language is settled at compile time. Negotiated
+      // lexing (relex) is always on for GBNF: the notation is
+      // scannerless, so one character can be a different token in
+      // different parse contexts, and alternates must be able to re-cut.
+      const lexOf = (src) => gbnfConvert(src).options.lex
+      assert.deepEqual(lexOf('root ::= "x"'), { empty: false, relex: true })
+      assert.deepEqual(lexOf('root ::= "x"*'), { empty: true, relex: true })
+      assert.deepEqual(lexOf('root ::= "x"?'), { empty: true, relex: true })
+      assert.deepEqual(lexOf('root ::= "x"{0,3}'), { empty: true, relex: true })
       assert.deepEqual(
-        gbnfConvert('root ::= ws\nws ::= | " "').options.lex, { empty: true })
+        lexOf('root ::= ws\nws ::= | " "'), { empty: true, relex: true })
     })
 
   })

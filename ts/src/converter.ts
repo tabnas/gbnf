@@ -881,7 +881,13 @@ function applyExactLexing(
   options.number = { lex: false }
   options.text = { lex: false }
   options.value = { lex: false }
-  options.lex = { empty: acceptsEmpty }
+  // Negotiated lexing: GBNF is scannerless, so one character can be a
+  // different token in different parse contexts ('"' is an escapable
+  // char inside a string body and the closing quote at its end; '\n'
+  // is a ws-class member and a literal). The engine's relex option lets
+  // an alternate re-cut a token under its own tin list instead of
+  // failing on the first cut's identity.
+  options.lex = { empty: acceptsEmpty, relex: true }
   spec.options = options as GrammarSpec['options']
   return spec
 }

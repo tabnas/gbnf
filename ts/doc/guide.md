@@ -179,30 +179,25 @@ g.productions[0].alts[0][0].kind   // => 'plus'
 
 ## When a grammar compiles but will not parse
 
-Compilation checks the notation; parsing exercises the engine's
-tokenising lexer, and that is where the remaining limits live. The
-failure almost always has one of two shapes, both covered in
-[known-gaps.md](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing):
+Compilation checks the notation; parsing exercises the engine, and that
+is where the remaining limits live. Overlapping terminals — classes
+that overlap each other, a literal's first character inside a class,
+keywords shadowed by identifier classes, alternatives sharing an
+unbounded prefix — are handled: the engine renegotiates token cuts per
+alternative and the compiler emits exit guards, keyword guards and
+left-factored helpers
+([known-gaps.md](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing--resolved)).
+What remains:
 
-- a repetition (`X?`, `X*`, `X+`) followed by a **character class**, in a
-  grammar whose classes overlap each other or a literal's first
-  character;
-- two terminals that can both match at the same position, where the
-  class wins because match matchers run before the fixed matcher.
+1. **Ambiguity that needs backtracking.** If the grammar must backtrack
+   over an optional to succeed (`[a-h]? [1-8]? [a-h] [1-8]` — chess's
+   `Nf3`), no lexer tuning helps: the engine runs one rule stack and
+   commits to an optional as soon as it matches.
+2. **An identifier exactly equal to a keyword**, in a position where
+   the keyword's statement is also viable (`return = 1;` where `return`
+   is a variable). The guards decide keyword-vs-identifier with two
+   tokens of lookahead, which covers `returnx` but not this.
 
-Things worth trying, in order:
-
-1. **Make the classes disjoint.** `[a-z]` beside `[a-z0-9_]` is the
-   usual culprit; rewriting the second as `([a-z] | [0-9_])` costs
-   nothing and lets the compiler lex classes eagerly, which removes the
-   first failure shape entirely.
-2. **Give the repetition a literal terminator** the class does not
-   contain. Literals are matched by the fixed matcher, which is not
-   gated by the active rule.
-3. **Check for ambiguity.** If the grammar needs to backtrack over an
-   optional to succeed (`[a-h]? [1-8]? [a-h] [1-8]`), no amount of
-   lexer tuning will help — the engine runs one rule stack.
-
-If none of that applies, the honest answer may be that the grammar is
-outside the deterministic subset. It will still constrain a sampler
-correctly; it just cannot be validated offline here.
+Both shapes still constrain a sampler correctly; they just cannot be
+validated offline here. If a parse fails and neither applies, that is a
+bug — report it with the grammar and the input.

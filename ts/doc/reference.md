@@ -247,9 +247,9 @@ the start rule.
 ```js
 const { gbnfConvert } = require('@tabnas/gbnf')
 
-gbnfConvert(`root ::= "x"`).options.lex     // => ({ empty: false })
-gbnfConvert(`root ::= "x"*`).options.lex    // => ({ empty: true })
-gbnfConvert(`root ::= "x"{0,2}`).options.lex // => ({ empty: true })
+gbnfConvert(`root ::= "x"`).options.lex     // => ({ empty: false, relex: true })
+gbnfConvert(`root ::= "x"*`).options.lex    // => ({ empty: true, relex: true })
+gbnfConvert(`root ::= "x"{0,2}`).options.lex // => ({ empty: true, relex: true })
 ```
 
 ### `eagerClasses`
