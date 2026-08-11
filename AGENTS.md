@@ -39,33 +39,41 @@ model. This can.
 | [`ts/src/converter.ts`](ts/src/converter.ts) | The front-end. `gbnfRules` (the tabnas meta-grammar that reads GBNF), the terminal decoders, the validation passes, and the emitted lexer settings. |
 | [`ts/src/gbnf.ts`](ts/src/gbnf.ts) | Plugin facade — `tn.gbnf(src)` / `tn.gbnf.toSpec(src)`, plus the bare exports and `VERSION`. |
 | [`ts/test/gbnf.test.js`](ts/test/gbnf.test.js) | The main suite: IR shape per construct, escapes, classes, repetition, errors, exact lexing, end-to-end parses, plugin surface. |
-| [`ts/test/corpus.test.js`](ts/test/corpus.test.js) | The llama.cpp conformance corpus — compile-all plus recorded accept / expected-failure samples. |
+| [`ts/test/corpus.test.js`](ts/test/corpus.test.js) | The llama.cpp conformance corpus — compile-all, plus accept / reject / expected-failure samples. |
+| [`ts/test/live.test.js`](ts/test/live.test.js) | The live corpus — llama.cpp's 70 expected JSON-schema-to-grammar outputs, compiled and parsed. |
 | [`ts/test/doc-examples.test.js`](ts/test/doc-examples.test.js) | Runs every ` ```js ` fence in the repo's markdown that carries a `// =>` assertion. |
 | [`ts/test/version.test.js`](ts/test/version.test.js) | The exported `VERSION` against `ts/package.json`. |
 | [`test/corpus/`](test/corpus/) | llama.cpp's own `grammars/*.gbnf`, verbatim and **committed**. See the README there for provenance. |
+| [`test/live/`](test/live/) | Schema-generated GBNF, extracted verbatim from llama.cpp's converter tests. See the README there. |
 | [`ts/doc/`](ts/doc/) | 4-quadrant Diátaxis docs plus [`known-gaps.md`](ts/doc/known-gaps.md). |
-| [`go/`](go/) | Reserved for the Go port. **Not implemented yet** — the directory still holds scaffold left over from the template. |
+| [`go/`](go/) | The Go port. Follows `ts/`; see [`go/README.md`](go/README.md). |
 
 ## Conformance claim
 
-**Every grammar in llama.cpp's `grammars/` directory compiles.** Seven
+**Every grammar in llama.cpp's `grammars/` directory compiles.** Eight
 files, copied verbatim at commit
-`dd1ea524333b1e697489067d7a4c39c60d32beee`, tracked in
+`030ebb558a5820b444a8f836ed5cdd46c9b4bd7a`, tracked in
 [`test/corpus/`](test/corpus/) and graded by
 [`ts/test/corpus.test.js`](ts/test/corpus.test.js).
 
-Six of the seven also **parse real input** end to end. The exceptions
-are recorded as explicit expected failures, not omissions:
+All eight also **parse real input** end to end, and reject near-miss
+invalid input — both directions are graded. A second corpus,
+[`test/live/`](test/live/), holds the 70 expected outputs of
+llama.cpp's JSON-schema-to-grammar converter; all 70 compile and parse
+(`ts/test/live.test.js`).
+
+Exactly one sample is recorded as an expected failure:
 
 | Grammar | Sample | Cause |
 |---|---|---|
-| `arithmetic.gbnf` | any input | follow-set gap: `ws ::= [ \t\n]*` then a term |
-| `json.gbnf` | `{"a":1}` | overlapping terminals: escape class matches the closing quote |
-| `c.gbnf` | `int a(){//x\n}` | follow-set gap: `statement*` then a comment |
+| `chess.gbnf` | `Nf3` | stacked optional prefixes need backtracking (`known-gaps.md` §3) |
 
-If one of those starts working the suite goes **red**, because the
-assertion is `notEqual(err, null)`. That is deliberate: an expected
-failure that quietly becomes a pass is a documentation bug.
+If it starts working the suite goes **red**, because the assertion is
+`notEqual(err, null)`. That is deliberate: an expected failure that
+quietly becomes a pass is a documentation bug. The three entries that
+used to sit in this table — `arithmetic.gbnf`, `json.gbnf` and
+`c.gbnf` — were resolved by negotiated lexing plus the shared
+compiler's guards, and are written up as such in `known-gaps.md` §2.
 
 **Do not narrow a corpus case to make it green.** The grammars are
 upstream bytes; the whole point is that they are not tidied for us.
@@ -146,10 +154,10 @@ a close-state alt land in the rule's close-token array.
 
 ## Authority and alignment rules
 
-1. **`ts/` is canonical.** The Go port does not exist yet.
+1. **`ts/` is canonical.** The Go port follows it.
 2. **`@tabnas/bnf` is not this repo's to change.** If a limitation is in
-   the shared compiler's emission (the follow-set gap in §2a of
-   known-gaps is), record it there and fix it upstream — do not
+   the shared compiler's emission (as the overlapping-terminal gaps in
+   §2 of known-gaps were), record it there and fix it upstream — do not
    work around it by rewriting the IR into a shape that no longer says
    what the grammar said.
 3. **A gap gets written down, not smoothed over.**

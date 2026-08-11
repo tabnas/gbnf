@@ -881,9 +881,52 @@ function applyExactLexing(
   options.number = { lex: false }
   options.text = { lex: false }
   options.value = { lex: false }
-  options.lex = { empty: acceptsEmpty }
+  // Negotiated lexing: GBNF is scannerless, so one character can be a
+  // different token in different parse contexts ('"' is an escapable
+  // char inside a string body and the closing quote at its end; '\n'
+  // is a ws-class member and a literal). The engine's relex option lets
+  // an alternate re-cut a token under its own tin list instead of
+  // failing on the first cut's identity.
+  requireRelexSupport()
+  options.lex = { empty: acceptsEmpty, relex: true }
   spec.options = options as GrammarSpec['options']
   return spec
+}
+
+
+// The engine must actually implement negotiated lexing. One that
+// predates it ignores the unknown `lex.relex` option in silence, and
+// the grammars that need it then fail somewhere in the middle of an
+// input with an ordinary unexpected-character error — true, but no help
+// at all in working out that the dependency is too old.
+//
+// Checked as a capability rather than as a peer-version range because a
+// range cannot see a linked working copy, which is how this package is
+// developed and how CI builds it.
+let _relexSupported: boolean | null = null
+
+function requireRelexSupport(): void {
+  if (null == _relexSupported) {
+    // Ask the engine directly: set the option and see whether it
+    // survives into the resolved config. An engine that does not know
+    // the option drops it there, which is exactly the condition that
+    // matters — more precise than a version number, and it costs one
+    // throwaway instance, memoised.
+    try {
+      const { Tabnas } = require('@tabnas/parser')
+      const probe: any = new Tabnas({ lex: { relex: true } })
+      _relexSupported = true === probe.internal().config.lex.relex
+    } catch (e) {
+      _relexSupported = false
+    }
+  }
+  if (!_relexSupported) {
+    throw new GbnfCompileError(
+      'this @tabnas/parser is too old — it does not implement negotiated ' +
+      'lexing (lex.relex), which GBNF needs because its grammars are ' +
+      'scannerless: one character can legitimately be a different token ' +
+      'for different alternatives. Upgrade @tabnas/parser.')
+  }
 }
 
 

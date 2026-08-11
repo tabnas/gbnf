@@ -40,136 +40,75 @@ could be added later; it would have to be off by default.
 
 ---
 
-## 2. Overlapping terminals and rule-directed lexing
+## 2. Overlapping terminals and rule-directed lexing — resolved
 
-This is the big one, and it has two faces. Both come from the same fact:
-the engine is a **tokeniser plus a push-down parser**, and GBNF is
-**scannerless** — its grammar describes the input one character at a
-time, with no lexical level at all.
+This was the big one. The engine is a **tokeniser plus a push-down
+parser**, and GBNF is **scannerless** — its grammar describes the input
+one character at a time, with no lexical level at all. When several
+terminals can claim the same character (`[a-z0-9_]`, `[0-9]`, `[ \t\n]`
+and the literal `"\n"` all live at the same positions in
+`arithmetic.gbnf`), the character used to get ONE identity at first
+lexing, and every alternative that needed the other equally-valid
+identity failed.
 
-The engine lexes under the direction of the active rule. A `match.token`
-regex — which is how a character class is emitted — is only offered a
-position when the rule's own alternatives name its token there (the
-"token column", or *tcol*). That gate is what lets `[a-z]` and
-`[a-z0-9_]` be two different tokens instead of a contradiction.
+It is resolved by one engine option and three compiler behaviours, each
+inert where it is not needed:
 
-### 2a. A class is invisible where the rule does not name it
+- **Negotiated lexing** (`lex.relex`, `@tabnas/parser`). This front-end
+  opts in. When a buffered token's type does not match what an
+  alternative expects, the engine re-cuts the token's source span
+  constrained to the tokens that alternative names, instead of failing
+  the alternative outright. A character's identity becomes something
+  alternatives negotiate, not something the first fetch freezes. Off by
+  default: grammars written for tokenising lexers never need it, and
+  renegotiation can only turn failed alternatives into matches.
+- **FOLLOW and FOLLOW₂ guards** (`@tabnas/bnf`). A repetition's
+  terminating alternative names its FOLLOW tokens so the lexer offers
+  them at the loop exit, and a *contested* repetition — one whose
+  repeated class covers a follow token's characters — additionally gets
+  2-token exit guards ordered before the continue alternatives
+  (`ws ::= [ \t\n]*` before the literal `"\n"` is the canonical case).
+- **Keyword-shadow guards** (`@tabnas/bnf`). A literal-keyword
+  alternative contested by a character-class alternative (`"while" …`
+  next to `identifier …` in c.gbnf's `statement`) gets 2-token guards
+  — the keyword plus a token only the keyword alternative can follow it
+  with — placed ahead of the class alternative, while its bare 1-token
+  entry drops behind, so `while(x<1)…` picks the keyword statement and
+  `whilex = 1;` still parses as an identifier.
+- **Left factoring** (`@tabnas/bnf`). Alternatives sharing a prefix no
+  finite lookahead can see past (`identifier ws "=" …` next to
+  `identifier ws "(" …`) are factored into a common prefix and a
+  transparent decision helper, so the choice happens where the
+  alternatives actually differ.
 
-Repetition compiles to helper rules, and the helper that *ends* a
-repetition never names what follows it:
+Getting a renegotiated cut wrong cannot over-accept: every alternative
+still requires exactly its own tokens, so a wrong cut makes the parse
+fail, never succeed spuriously.
 
-```gbnf
-root ::= sign? [0-9]+
-sign ::= "-"
-```
+When a grammar's classes are provably unambiguous the front-end also
+drops the rule-directed gate entirely (every class matcher is flagged
+`eager$` — tokenisation independent of parse state). Two conditions are
+checked over the whole grammar: the classes are pairwise disjoint, and
+no class contains the first character of any string literal.
+`japanese.gbnf` qualifies; `arithmetic.gbnf` does not, and relies on
+negotiated lexing instead. Pass `{ eagerClasses: false }` to turn the
+eager mitigation off.
 
-The `?` becomes a helper whose alternatives are `#sign` and the empty
-one, so its token column is `{#sign}`. Lexing `1` there offers nothing
-that matches, and the parse fails one character in — even though the
-`[0-9]` token is right there in the same spec. Every `X? C`, `X* C` and
-`X+ C` where `C` is a character class has this shape.
+**Status:** resolved for the whole corpus. All eight llama.cpp grammars
+compile, accept their own valid samples — keyword statements, funcCall
+expressions and keyword-prefixed identifiers included — and reject
+near-miss invalid ones (`ts/test/corpus.test.js` pins both directions).
+The one construct still out of reach is §3's, which is a different
+class of problem.
 
-**Mitigation, and its limits.** When a grammar's classes are provably
-unambiguous the front-end drops the gate: it flags every emitted class
-matcher `eager$`, so the matcher fires whenever its regex matches and
-the parser rejects tokens it did not expect. Tokenisation then does not
-depend on parse state at all. Two conditions are checked over the whole
-grammar:
-
-1. the classes are **pairwise disjoint**, so at most one can claim any
-   character; and
-2. **no class contains the first character of any string literal** —
-   match matchers run before the fixed matcher, so an eager class would
-   otherwise swallow a literal's opening character.
-
-`root ::= sign? [0-9]+` satisfies both and parses. `arithmetic.gbnf`
-does not (`[a-z]` and `[a-z0-9_]` overlap; `[ \t\n]` holds the first
-character of the literal `"\n"`), so it keeps rule-directed lexing and
-`ws ::= [ \t\n]*` still cannot be followed by a term. Pass
-`{ eagerClasses: false }` to turn the mitigation off.
-
-Getting eager tokenisation wrong cannot over-accept: a mis-tokenised
-character makes the parse **fail**, never succeed. That is why the
-conditions are checked rather than assumed.
-
-**Status:** the follow-set guard has **landed** in `@tabnas/bnf`
-(tabnas/bnf#4): each repetition helper's terminating alternative is now
-re-issued once per FOLLOW token as a peek-and-push-back, so the loop can
-exit onto a character class. `root ::= sign? [0-9]+` and its ABNF
-equivalent parse.
-
-It was **not sufficient** for the corpus, and that is worth stating
-plainly rather than leaving the entry looking solved. Naming FOLLOW
-tells the lexer *which tokens are legal* at the loop exit; it does not
-tell it *which matcher to run* when several of those tokens overlap.
-`arithmetic.gbnf` has `[a-z]`, `[a-z0-9_]`, `[0-9]` and `[ \t\n]` live
-at the same positions, so it still fails — the failure simply moves.
-The remaining half is the same position-aware-column problem as 2b, and
-is tracked as tabnas/bnf#5.
-
-### 2b. A class can outrank the literal a rule wanted
-
-Match matchers run at lex order `1e6`, the fixed matcher at `2e6`, so a
-class token in the current token column beats a string literal at the
-same position. In `json.gbnf`:
-
-```gbnf
-string ::= "\"" ( [^"\\\x7F\x00-\x1F] | "\\" (["\\bfnrt] | "u" [0-9a-fA-F]{4}) )* "\"" ws
-```
-
-the escape class `["\\bfnrt]` contains `"`. At the closing quote of
-`"a"`, that class is in the token column (the loop's other branch could
-still be starting), so the closing `"` is lexed as an escape character
-and the string never terminates. `{}` and `{ }` parse; `{"a":1}` does
-not.
-
-**Status:** open, and the cause is narrower than "matcher precedence"
-— that framing is what made it look unfixable. Measured on the emitted
-spec for the string-body helper:
-
-| | |
-|---|---|
-| tokens named anywhere | 6 |
-| tokens in **first** position | 3 |
-| is the escape class ever first? | **no** |
-| is it in the token column? | **yes** |
-
-A rule's token column is the union of every token named *anywhere* in
-its alternatives, but a multi-token lookahead prefix (`s: "#T9 ESC"`)
-names tokens valid only at a later position. The escape class is legal
-only after a backslash, yet it is offered at position 0 — where it
-matches `"` and takes the closing quote.
-
-So this is not really about lex order. Reordering cannot fix it either:
-after a backslash `"` **must** lex as the escape class, and at the end
-of the body it **must** lex as the fixed quote. Same character, same
-rule, opposite answers, decided by position — no total order over
-matchers gets both right.
-
-The obvious compiler-side remedy was tried and rejected: truncating a
-prefix before the offending token moved `json.gbnf` past the closing
-quote but **regressed `c.gbnf`**, whose `int a(){}` stopped parsing.
-The deep prefixes are doing real dispatch work, so the fix cannot be
-subtractive — it has to make the column position-aware. Tracked as
-tabnas/bnf#5.
-
-The separate hazard of two overlapping *literals* (`"a"` beside `"ab"`)
-remains as described, since the fixed matcher is global and
-longest-match-wins.
-
-### 2c. What this looks like in the corpus
-
-`ts/test/corpus.test.js` grades all seven llama.cpp grammars. Every one
-**compiles**. Six of the seven parse real input; the recorded gaps are:
-
-| Grammar | Sample | Cause |
-|---|---|---|
-| `arithmetic.gbnf` | any input at all | 2a — `ws ::= [ \t\n]*` then a term |
-| `json.gbnf` | `{"a":1}` | 2b — escape class is offered where it is not valid |
-| `c.gbnf` | `int a(){//x\n}` | 2a — `statement*` then a comment |
-
-The expected failures are asserted, not skipped. If one starts working,
-the suite goes red and this document is what needs updating.
+One boundary case is worth writing down: an identifier *exactly* equal
+to a keyword in a position where the keyword statement is also viable.
+In c.gbnf, `return = 1;` (an identifier literally named `return`,
+being assigned) matches the keyword guard `("return", ws)` and commits
+to the return-statement, then fails at `=`. llama.cpp's nondeterministic
+sampler would accept it via the identifier alternative. Deciding it
+needs unbounded lookahead; prefixed identifiers (`returnx`, `intx`) are
+decided correctly by the guards.
 
 ---
 
@@ -187,12 +126,16 @@ nonpawn ::= [NBKQR] [a-h]? [1-8]? "x"? [a-h] [1-8]
 `Nf3` needs both optionals to be *skipped* so that `f` and `3` land on
 the final `[a-h] [1-8]`. That is a backtracking decision; the engine
 commits to the first optional as soon as `f` matches, and then fails.
-Pawn moves and castling in the same grammar parse fine.
+Pawn moves, castling, captures (`Nxe4` — the `x` disambiguates) and
+promotions in the same grammar parse fine, and the corpus suite pins
+`Nf3` as the one expected failure.
 
 **Status:** inherent. The probe/rewind machinery in `@tabnas/bnf` widens
 the deterministic subset for one specific shape (an optional prefix
 disambiguated by a single following token), not for general
-backtracking.
+backtracking. §2's negotiated lexing does not help here either — the
+ambiguity is in which grammar *positions* consume the characters, not
+in which tokens they are.
 
 ---
 

@@ -59,8 +59,8 @@ and emits `lex: { empty: … }` to match.
 ```js
 const { gbnfConvert } = require('@tabnas/gbnf')
 
-gbnfConvert(`root ::= "x"`).options.lex  // => ({ empty: false })
-gbnfConvert(`root ::= "x"*`).options.lex // => ({ empty: true })
+gbnfConvert(`root ::= "x"`).options.lex  // => ({ empty: false, relex: true })
+gbnfConvert(`root ::= "x"*`).options.lex // => ({ empty: true, relex: true })
 ```
 
 ## What this package owns

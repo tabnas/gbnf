@@ -247,9 +247,9 @@ the start rule.
 ```js
 const { gbnfConvert } = require('@tabnas/gbnf')
 
-gbnfConvert(`root ::= "x"`).options.lex     // => ({ empty: false })
-gbnfConvert(`root ::= "x"*`).options.lex    // => ({ empty: true })
-gbnfConvert(`root ::= "x"{0,2}`).options.lex // => ({ empty: true })
+gbnfConvert(`root ::= "x"`).options.lex     // => ({ empty: false, relex: true })
+gbnfConvert(`root ::= "x"*`).options.lex    // => ({ empty: true, relex: true })
+gbnfConvert(`root ::= "x"{0,2}`).options.lex // => ({ empty: true, relex: true })
 ```
 
 ### `eagerClasses`
@@ -269,7 +269,7 @@ Under both, every character has exactly one possible token, so
 tokenisation no longer depends on parse state. Set `eagerClasses: false`
 to keep rule-directed lexing. The full account, including what happens
 when the conditions do not hold, is in
-[known-gaps.md](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing).
+[known-gaps.md](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing--resolved).
 
 ---
 
