@@ -14,8 +14,14 @@ At every generation step the model proposes a probability distribution
 over its whole vocabulary. With a grammar loaded, the sampler tracks
 where in the grammar the output-so-far sits and masks out every token
 that would step outside the grammar's language, before anything is
-sampled. The model *cannot* emit a string the grammar rejects — a hard
-guarantee, where a prompt is a request. That is what `.gbnf` files are
+sampled. The model *cannot* emit text outside the grammar — a hard
+guarantee where a prompt is a request, with one boundary worth
+knowing: masking guarantees every emitted prefix is a *viable* prefix,
+so generation that stops early (a max-token cutoff, a cancellation)
+can still return an incomplete prefix the grammar rejects. The
+guarantee is whole-string only when generation runs to grammar
+completion — which is one more reason to validate final outputs
+offline. That is what `.gbnf` files are
 written for: forcing valid JSON (llama.cpp's JSON-Schema converter
 emits exactly these grammars — the [`test/live/`](../../test/live/)
 corpus), legal chess moves, arithmetic, any structured output. The
@@ -30,8 +36,11 @@ GBNF's defining quirks all follow from that origin:
 - **`root` is mandatory.** Generation always starts from one known
   symbol, and the whole emitted output must derive from it.
 - **Ambiguity is legal.** The sampler explores alternatives
-  nondeterministically as characters arrive; nothing forces a GBNF
-  grammar to be runnable by a deterministic parser
+  nondeterministically as characters arrive, so nothing forces a GBNF
+  grammar to be decidable on one committed parse path — and some
+  grammars defeat this engine's strategy of a single rule stack,
+  first-match-wins alternatives and bounded, grammar-declared
+  lookahead
   ([known-gaps.md §3](known-gaps.md#3-gbnf-can-express-grammars-no-deterministic-parser-can-run)).
 - **Tokenizer-token terminals exist** (`<think>`, `<[1000]>`) because
   the sampler operates on vocabulary entries, so a grammar can
@@ -39,15 +48,18 @@ GBNF's defining quirks all follow from that origin:
   languages on different models
   ([known-gaps.md §1](known-gaps.md#1-tokenizer-token-terminals-are-rejected-by-policy)).
 
-The gap this package fills follows from the same origin. In that whole
-ecosystem the grammar only ever runs *inside a sampler*, so none of
-those tools can answer "would this string have been allowed?" without
-loading a model. This compiler gives the notation an actual parser:
-compile once, then test candidate strings offline, in milliseconds.
-And because the engine builds a `{rule, src, kids}` tree, the same
-grammar that constrained generation can then *parse* the generated
-output into structure — one artifact for both directions, instead of a
-sampler grammar plus a second, driftable extraction parser.
+The gap this package fills follows from the same origin. In the
+sampler integrations the grammar only ever runs *inside generation*,
+and the one offline checker the ecosystem ships — llama.cpp's
+`llama-gbnf-validator`, a C++ example binary built from the llama.cpp
+tree — answers accept/reject and nothing more. This compiler gives the
+notation an actual parser, as a library, where JS tooling lives:
+compile once, test many strings in-process in milliseconds, and get
+structured, named errors instead of a pass/fail. And because the
+engine builds a `{rule, src, kids}` tree, the same grammar that
+constrained generation can then *parse* the generated output into
+structure — one artifact for both directions, instead of a sampler
+grammar plus a second, driftable extraction parser.
 
 ## What the compiler is, and what the engine is
 
@@ -292,15 +304,19 @@ validation makes them part of software engineering:
   must not. That is precisely how this repo's own corpus suites work.
 - **Grammars under CI.** A wrong grammar does not crash anything — it
   silently changes what a model may emit, or blocks what it should.
-  `gbnf-check grammar.gbnf golden.txt` turns "still compiles, still
-  accepts the goldens, still rejects the known bad shapes" into an
-  ordinary pipeline gate: the exit code is the API.
+  The exit code is the API, and each supplied sample is asserted to be
+  *accepted* — so gating takes one invocation per direction:
+  `gbnf-check grammar.gbnf golden.txt` must exit `0` (still compiles,
+  still accepts the goldens), and a rejection gate inverts the
+  expectation — `! gbnf-check -q grammar.gbnf bad.txt` — which must
+  see exit `1` (still rejects the known bad shapes).
 - **A repair loop for agents that write grammars.** A model generating
   GBNF from a description or a JSON schema gets its first correctness
   signal *here*, not after a sampler loads: `gbnf-check --json`
-  returns one structured verdict — compile errors with `line`/`column`
-  or the offending rule, per-sample accept/reject with positions —
-  fast and deterministic enough to sit inside a
+  returns one structured verdict — compile errors carrying
+  `line`/`column` or the offending rule when the failure has one (a
+  terminal-decoder error carries neither), per-sample accept/reject
+  with positions — fast and deterministic enough to sit inside a
   generate → check → repair loop.
 - **Separating grammar bugs from model bugs.** When constrained output
   looks wrong there are two suspects. If the output you *expected*

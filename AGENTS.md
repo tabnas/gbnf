@@ -32,12 +32,14 @@ therefore vLLM and SGLang), KoboldCpp, LocalAI and node-llama-cpp, and
 none of them can answer "does this string match my grammar?" without a
 model. This can.
 
-**Why nothing else can**: GBNF's original purpose is constrained
+**Why that gap exists**: GBNF's original purpose is constrained
 decoding — at each generation step the sampler masks every vocabulary
 token that would step outside the grammar's language, so the model
-cannot emit a string the grammar rejects. In that whole ecosystem the
-grammar only ever runs *inside a sampler*; membership has no offline
-answer there. GBNF's quirks all follow from that origin — scannerless,
+cannot emit text outside the grammar. In the sampler integrations the
+grammar only ever runs *inside generation*; the ecosystem's one
+offline checker, llama.cpp's `llama-gbnf-validator`, is a C++ example
+binary answering accept/reject only — no library form, no AST, no
+structured errors. GBNF's quirks all follow from that origin — scannerless,
 mandatory `root`, ambiguity legal, tokenizer-token terminals — and so
 do this repo's design constraints. The full account is
 [`ts/doc/concepts.md` §"What GBNF is for"](ts/doc/concepts.md#what-gbnf-is-for);
