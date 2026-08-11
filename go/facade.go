@@ -142,7 +142,18 @@ func applyExactLexing(spec *tabnas.GrammarSpec, acceptsEmpty bool) {
 	spec.Options.Number = &tabnas.NumberOptions{Lex: &off}
 	spec.Options.Text = &tabnas.TextOptions{Lex: &off}
 	spec.Options.Value = &tabnas.ValueOptions{Lex: &off}
-	spec.Options.Lex = &tabnas.LexOptions{Empty: &acceptsEmpty}
+	// Negotiated lexing, the same opt-in the TS front-end makes. GBNF is
+	// scannerless, so one character can legitimately be a different token
+	// for different alternates ('"' is an escapable char inside a string
+	// body and the closing quote at its end; '\n' is a ws-class member and
+	// a literal). Without it an alternate fails on the first cut's
+	// identity; with it the alternate re-cuts the span under its own tins.
+	//
+	// No capability probe here, unlike ts/src/converter.ts: Go resolves
+	// this field at compile time, so a parser too old to know Relex fails
+	// the build rather than silently ignoring the option.
+	on := true
+	spec.Options.Lex = &tabnas.LexOptions{Empty: &acceptsEmpty, Relex: &on}
 }
 
 // ToSpec is Gbnf under the name the TS package uses.

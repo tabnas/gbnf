@@ -286,7 +286,7 @@ arrow's output needs to behave scannerlessly.
 | Path | Description |
 |---|---|
 | [`ts/`](ts/) | TypeScript / JavaScript (`@tabnas/gbnf`). Canonical. |
-| [`go/`](go/) | The Go port of the front-end. Reads `.gbnf` text and compiles the whole corpus; parse-level conformance grading stays TS-only until the Go engine implements negotiated lexing (`lex.relex`). See [`go/README.md`](go/README.md). |
+| [`go/`](go/) | The Go port of the front-end. Reads `.gbnf` text, compiles the whole corpus, and grades accept/reject on five of the eight grammars; the other three wait on guards that are TypeScript-only in `@tabnas/bnf`. See [`go/README.md`](go/README.md). |
 
 ## Documentation
 

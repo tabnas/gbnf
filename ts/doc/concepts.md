@@ -367,13 +367,17 @@ never had an IR.
 
 ## What is not here yet
 
-- **Go parse-level parity.** The Go front-end is implemented — it reads
-  `.gbnf` text, runs the same validation passes, and compiles the
-  corpus — but the Go engine has no negotiated lexing (`lex.relex`),
-  so accept/reject conformance grading runs only in TypeScript. That
-  is an engine gap, recorded in `@tabnas/parser`'s own
-  `doc/differences.md`, and it is where the fix belongs. The renderer
-  is TS-only for now too, `ts/` being canonical.
+- **Go parse-level parity, for three grammars.** The Go front-end
+  reads `.gbnf` text, runs the same validation passes, compiles the
+  whole corpus, and — since negotiated lexing landed in `parser/go`
+  v0.8.5 — grades accept/reject on five of the eight grammars.
+  `arithmetic`, `c` and `english` still cannot parse samples inside
+  their language, because relex is necessary but not sufficient: the
+  shared compiler's contested-alternative guards (FOLLOW/FOLLOW₂
+  exits, keyword-shadow guards, left factoring) are TypeScript-only in
+  `@tabnas/bnf`, so that is where the fix belongs. The gaps are
+  asserted in `go/gbnf_test.go`, not omitted. The renderer is TS-only
+  for now too, `ts/` being canonical.
 
 The validator CLI and the renderer that used to be on this list are
 here now: `gbnf-check`

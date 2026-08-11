@@ -227,15 +227,20 @@ module proxy.
 
 ## Not implemented yet
 
-- **Go parse-level parity.** The Go front-end IS implemented
-  (`go/parser_gbnf.go` + `go/facade.go`, mirroring `ts/src/converter.ts`;
-  its suite compiles the corpus). What it cannot do yet is *grade* the
-  corpus: the Go engine has no negotiated lexing (`lex.relex` is
-  "TypeScript only" per `parser/go`'s `doc/differences.md`) and the
-  front-end has no `markClassesEager` port, so accept/reject conformance
-  runs only in `ts/`. The engine gap is `@tabnas/parser`'s to close,
-  not this repo's — the same fix-it-upstream principle alignment rule 2
-  states for `@tabnas/bnf`.
+- **Go parse-level parity — 5 of 8, and the remaining blocker is
+  upstream.** Negotiated lexing landed in `parser/go` v0.8.5 and
+  `applyExactLexing` opts in, so the Go suite now grades accept/reject:
+  `chess`, `japanese`, `json`, `json_arr` and `list` agree with
+  TypeScript in both directions. `arithmetic`, `c` and `english` do
+  not, and are asserted as expected failures in
+  `go/gbnf_test.go` (`corpusExpectedFailures`) so a fix goes red.
+  **The cause is one gap, not three:** relex is necessary but not
+  sufficient — the shared compiler's contested-alternative guards
+  (`computeFollowSets`, `computeFollowPairs`, `leftFactor`, and the
+  keyword-shadow guards) exist only in the TypeScript `@tabnas/bnf`,
+  so a Go-compiled spec lacks the alternates that decide those three.
+  That is `@tabnas/bnf`'s to close (alignment rule 2), not this
+  repo's. `markClassesEager` also has no Go port — smaller, and local.
 - **The Go renderer.** `renderGbnf` (IR → GBNF text) is TS-only,
   `ts/` being canonical; the Go port follows.
 
