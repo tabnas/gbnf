@@ -4,6 +4,9 @@
   "main": "dist/gbnf.js",
   "type": "commonjs",
   "types": "dist/gbnf.d.ts",
+  "bin": {
+    "gbnf-check": "dist/cli.js"
+  },
   "description": "llama.cpp GBNF grammar compiler for the tabnas parser.",
   "homepage": "https://github.com/tabnas/gbnf",
   "keywords": [

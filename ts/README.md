@@ -63,6 +63,21 @@ gbnfConvert(`root ::= "x"`).options.lex  // => ({ empty: false, relex: true })
 gbnfConvert(`root ::= "x"*`).options.lex // => ({ empty: true, relex: true })
 ```
 
+## The validator CLI
+
+`gbnf-check` installs with the package: compile a grammar, check
+samples against it, read the exit code (`0` all accepted, `1` a
+rejection, `2` no compile, `3` usage). `--json` emits a stable report
+for tooling and AI agents.
+
+```bash
+npx gbnf-check grammar.gbnf sample.txt
+npx gbnf-check grammar.gbnf --text 'candidate' --json
+```
+
+See [doc/reference.md](doc/reference.md#command-line-gbnf-check) for
+options, exit codes, and the JSON report shape.
+
 ## What this package owns
 
 Only the notation. The compilation itself — desugaring repetition into

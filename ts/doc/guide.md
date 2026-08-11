@@ -35,6 +35,34 @@ rather than by a parse, so `accepts('')` reports whether `root` derives
 the empty string; when it does, `tn.parse('')` returns `undefined`
 rather than a node.
 
+## Validate from the shell, CI, or an AI agent
+
+The same check without writing a script: `gbnf-check` ships with the
+package. Point it at a grammar and some samples; the exit code is the
+answer (`0` all accepted, `1` something rejected, `2` the grammar does
+not compile, `3` usage error).
+
+```bash
+npx gbnf-check chess.gbnf                    # does the grammar compile?
+npx gbnf-check json.gbnf out.txt             # does the file match it?
+npx gbnf-check json.gbnf --text '{"a": 1}'   # does this string match?
+```
+
+For a tool or agent loop, `--json` swaps the prose for one stable JSON
+document — grammar status, per-sample verdicts with `line`/`column`,
+and a `hint` when a rejection is only a trailing newline:
+
+```bash
+npx gbnf-check json.gbnf --text '{"a":1,}' --json
+```
+
+This is the loop that matters when a model *writes* the grammar:
+generate `.gbnf`, run `gbnf-check` on it with known-good and known-bad
+samples, and repair from the reported error before ever loading a
+sampler. See [reference.md](reference.md#command-line-gbnf-check) for
+the full report shape, and keep the two cautions above in mind — they
+apply to the CLI exactly as much as to `tn.parse()`.
+
 ## Port a grammar file from llama.cpp
 
 Read the file and hand it over; there is nothing else to do. GBNF has

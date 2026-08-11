@@ -273,6 +273,84 @@ when the conditions do not hold, is in
 
 ---
 
+## Command line: `gbnf-check`
+
+Installed with the package (`npx gbnf-check`, or on `PATH` after a
+global install). A thin wrapper over `gbnfConvert` plus `tn.parse`:
+compile a grammar, then check sample inputs against it, offline.
+
+```
+gbnf-check [options] <grammar.gbnf | -> [sample-file ...]
+```
+
+The grammar comes from the named file, or from stdin when the argument
+is `-`. Positional arguments after the grammar are sample **files**;
+each must match the grammar in full. With no samples the grammar is
+only compiled.
+
+| Option | Meaning |
+|---|---|
+| `-t, --text <s>` | check `<s>` itself instead of reading a file. Repeatable; checked after the file samples. |
+| `--stdin` | read one sample from stdin. Not with a `-` grammar. |
+| `--json` | write the machine-readable report below to stdout. |
+| `--ast` | include each accepted sample's `{rule, src, kids}` AST in the report. An accepted *empty* input reports `null` — the engine settles `''` before any rule runs. |
+| `--strip-final-newline` | remove one trailing newline (`\n` or `\r\n`) from every sample before parsing. Off by default: silently altering input would change the accepted language. |
+| `-q, --quiet` | no report; the exit code is the answer. Not with `--json`. |
+| `-h, --help` `-v, --version` | the usual. |
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | the grammar compiles and every sample was accepted |
+| `1` | the grammar compiles but at least one sample was rejected |
+| `2` | the grammar does not compile |
+| `3` | usage or I/O error |
+
+### JSON report
+
+`--json` emits one JSON document on stdout — also for usage errors, so
+tooling never has to parse prose. Shape:
+
+```json
+{
+  "tool": "gbnf-check",
+  "version": "0.1.2",
+  "ok": false,
+  "exit": 1,
+  "grammar": { "source": "g.gbnf", "ok": true, "error": null },
+  "samples": [
+    { "source": "out.txt", "ok": false, "length": 3,
+      "error": { "name": "SyntaxError", "code": "unexpected",
+                 "message": "...", "line": 1, "column": 3 },
+      "hint": "the sample ends with a newline ..." },
+    { "source": "text#0", "ok": true, "length": 2 }
+  ],
+  "caveats": [ { "code": "rejection-may-be-engine-limit",
+                 "message": "...", "url": "..." } ]
+}
+```
+
+- `grammar.error` carries the compile failure when there is one:
+  `name` is `GbnfParseError` (with `line`/`column` when the failure
+  has a location — a terminal-decoder error does not) or
+  `GbnfCompileError` (with `rule`).
+- `samples[].error` is the engine's parse failure, ANSI-free, with
+  `line`/`column` when known. `length` is what was actually parsed
+  (after `--strip-final-newline`), in UTF-16 units.
+- `samples[].hint` appears when a rejected sample would have parsed
+  without its final newline — the `echo hi > s.txt` footgun.
+- `caveats` appears when at least one sample was rejected: a rejection
+  is this engine's answer, not always the grammar's
+  ([known-gaps.md](known-gaps.md#3-gbnf-can-express-grammars-no-deterministic-parser-can-run)).
+- A usage error (`exit` 3) replaces `grammar`/`samples` with a single
+  top-level `error`.
+
+Fields are only ever added; absent optional fields are omitted rather
+than set to `null` (except `grammar.error`, which is always present).
+
+---
+
 ## `VERSION`
 
 The package version as a string. Equal to `package.json`'s `version`;

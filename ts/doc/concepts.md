@@ -184,14 +184,18 @@ one is a typo). Checking first means the typo is reported as a typo.
 
 ## What is not here yet
 
-- **A Go port.** The front-end compiles to a pure-data spec, so Go can
-  already load a grammar compiled by this package; it cannot read
-  `.gbnf` text until the notation parser is ported.
+- **Go parse-level parity.** The Go front-end is implemented — it reads
+  `.gbnf` text, runs the same validation passes, and compiles the
+  corpus — but the Go engine has no negotiated lexing (`lex.relex`),
+  so accept/reject conformance grading runs only in TypeScript. That
+  is an engine gap, recorded in `@tabnas/parser`'s own
+  `doc/differences.md`, and it is where the fix belongs.
 - **A renderer.** Engine → GBNF export, the mirror of
   `@tabnas/debug`'s ABNF round-trip, would turn any tabnas grammar into
   a constraint file for a sampler — and, combined with `@tabnas/abnf`,
   give an ABNF ⇄ GBNF bridge. It belongs beside the ABNF renderer in
   `@tabnas/debug`.
-- **A validator CLI.** `gbnf-check <grammar> <sample…>` is a thin
-  wrapper over `gbnfConvert` plus `tn.parse`, and is the shape most
-  people asking for offline GBNF validation actually want.
+
+The validator CLI that used to be on this list is here now:
+`gbnf-check`, a thin wrapper over `gbnfConvert` plus `tn.parse` — see
+[reference.md](reference.md#command-line-gbnf-check).

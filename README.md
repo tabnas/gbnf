@@ -199,6 +199,26 @@ strings the sampler refuses; dropping it would accept strings with
 nothing there at all. Either silently changes the accepted language,
 which is the one thing this tool must never do.
 
+## The validator CLI
+
+The most-asked question has a command: `gbnf-check`, installed with the
+package. Compile a grammar, check samples, read the exit code — `0` all
+accepted, `1` something rejected, `2` the grammar does not compile,
+`3` usage error.
+
+```bash
+npx gbnf-check chess.gbnf                    # does the grammar compile?
+npx gbnf-check json.gbnf out.txt             # does the file match it?
+npx gbnf-check json.gbnf --text '{"a": 1}'   # does this string match?
+npx gbnf-check json.gbnf --text '{,}' --json # stable JSON, for tooling
+```
+
+`--json` emits one machine-readable document — per-sample verdicts,
+error positions, and a hint when a rejection is only a trailing
+newline — which makes the generate → check → repair loop scriptable for
+AI agents that write grammars. Full contract in
+[`ts/doc/reference.md`](ts/doc/reference.md#command-line-gbnf-check).
+
 ## Conformance
 
 The corpus is llama.cpp's own `grammars/` directory, copied verbatim
@@ -238,8 +258,8 @@ arrow's output needs to behave scannerlessly.
 
 | Path | Description |
 |---|---|
-| [`ts/`](ts/) | TypeScript / JavaScript (`@tabnas/gbnf`). |
-| [`go/`](go/) | Reserved for the Go port. Not implemented yet: Go can load a spec this compiler produced, but cannot read `.gbnf` text. |
+| [`ts/`](ts/) | TypeScript / JavaScript (`@tabnas/gbnf`). Canonical. |
+| [`go/`](go/) | The Go port of the front-end. Reads `.gbnf` text and compiles the corpus (less `english.gbnf`); parse-level conformance grading stays TS-only until the Go engine implements negotiated lexing (`lex.relex`). See [`go/README.md`](go/README.md). |
 
 ## Documentation
 
