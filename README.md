@@ -21,7 +21,10 @@ accepts. What none of them give you is a way to answer *"does this
 string match my grammar?"* without loading a model. That question — the
 most-asked one around GBNF — is what this package answers: compile the
 grammar once, then parse candidate strings against it, offline, in
-milliseconds.
+milliseconds. The full account — why the question has no other answer,
+and what offline validation changes for grammar test loops, CI, and
+AI agents that generate grammars — is in
+[`ts/doc/concepts.md`](ts/doc/concepts.md#what-gbnf-is-for).
 
 ```bash
 npm install @tabnas/parser @tabnas/bnf @tabnas/gbnf

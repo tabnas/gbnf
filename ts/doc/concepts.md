@@ -4,6 +4,51 @@ This document explains how `@tabnas/gbnf` works and why it is built the
 way it is. For the API see [reference.md](reference.md); for the places
 where it and llama.cpp part company see [known-gaps.md](known-gaps.md).
 
+## What GBNF is for
+
+GBNF was not designed as a parsing notation. It is llama.cpp's grammar
+format for **constrained decoding** — steering a language model while
+it generates.
+
+At every generation step the model proposes a probability distribution
+over its whole vocabulary. With a grammar loaded, the sampler tracks
+where in the grammar the output-so-far sits and masks out every token
+that would step outside the grammar's language, before anything is
+sampled. The model *cannot* emit a string the grammar rejects — a hard
+guarantee, where a prompt is a request. That is what `.gbnf` files are
+written for: forcing valid JSON (llama.cpp's JSON-Schema converter
+emits exactly these grammars — the [`test/live/`](../../test/live/)
+corpus), legal chess moves, arithmetic, any structured output. The
+notation is consumed by llama.cpp, XGrammar (and through it vLLM and
+SGLang), KoboldCpp, LocalAI and node-llama-cpp.
+
+GBNF's defining quirks all follow from that origin:
+
+- **It is scannerless.** The sampler constrains raw text one code
+  point at a time, so the grammar has no lexical level — a space is a
+  character the grammar demands, not whitespace to be skipped.
+- **`root` is mandatory.** Generation always starts from one known
+  symbol, and the whole emitted output must derive from it.
+- **Ambiguity is legal.** The sampler explores alternatives
+  nondeterministically as characters arrive; nothing forces a GBNF
+  grammar to be runnable by a deterministic parser
+  ([known-gaps.md §3](known-gaps.md#3-gbnf-can-express-grammars-no-deterministic-parser-can-run)).
+- **Tokenizer-token terminals exist** (`<think>`, `<[1000]>`) because
+  the sampler operates on vocabulary entries, so a grammar can
+  constrain at the token level — and therefore mean different
+  languages on different models
+  ([known-gaps.md §1](known-gaps.md#1-tokenizer-token-terminals-are-rejected-by-policy)).
+
+The gap this package fills follows from the same origin. In that whole
+ecosystem the grammar only ever runs *inside a sampler*, so none of
+those tools can answer "would this string have been allowed?" without
+loading a model. This compiler gives the notation an actual parser:
+compile once, then test candidate strings offline, in milliseconds.
+And because the engine builds a `{rule, src, kids}` tree, the same
+grammar that constrained generation can then *parse* the generated
+output into structure — one artifact for both directions, instead of a
+sampler grammar plus a second, driftable extraction parser.
+
 ## What the compiler is, and what the engine is
 
 `@tabnas/gbnf` is a **compiler**, not a parser. It reads GBNF source and
@@ -136,20 +181,72 @@ is a faithful acceptance test.
 What configuration cannot close is **overlap**. Two GBNF terminals may
 freely match the same character — `[0-9]` and `[0-9a-fA-F]`, or
 `["\\bfnrt]` and the literal `"\""`. A tokeniser must choose one, and it
-chooses before the parser has said which it wanted. The engine's answer
-is rule-directed lexing: a class matcher only fires where the active
-rule names it. That resolves overlap, at the cost of making a class
-invisible where the rule does *not* name it — which is exactly what
-happens at the end of a repetition.
+chooses before the parser has said which it wanted. The engine's first
+answer is rule-directed lexing: a class matcher only fires where the
+active rule names it. That resolves overlap, at the cost of making a
+class invisible where the rule does *not* name it — which is exactly
+what happens at the end of a repetition.
 
-The front-end takes the one out that is provably safe: when a grammar's
-classes are pairwise disjoint *and* no class holds the first character
-of a literal, overlap cannot arise, so the gate is dropped and every
-character has exactly one possible token. When those conditions do not
-hold, rule-directed lexing stays, and some grammars compile but cannot
-parse. Mis-tokenising can only make a parse **fail**, never wrongly
-succeed, which is why this is a usability limit rather than a
-correctness one.
+## Negotiated lexing
+
+The deeper problem is that a first cut **freezes** a character's
+identity. Watch the final newline here:
+
+```js
+const { Tabnas } = require('@tabnas/parser')
+const { gbnf } = require('@tabnas/gbnf')
+
+const tn = new Tabnas({ plugins: [gbnf] })
+tn.gbnf(`
+root ::= ws "x" ws "\\n"
+ws   ::= [ \\t\\n]*
+`)
+
+tn.parse(' x \n').src // => ' x \n'
+tn.parse('x\n').src   // => 'x\n'
+```
+
+That `\n` is a member of `ws`'s class *and* the literal `"\n"` — both
+are real tokens in the compiled spec, and both can claim the same
+position. If the lexer's first cut labels it the class token, the
+alternative that needs the literal sees the wrong token type and fails,
+even though the character is exactly what it wanted. The same shape is
+everywhere in real GBNF: `"` is an escapable body character and the
+closing quote inside `json.gbnf`'s strings; keywords sit inside
+identifier classes in `c.gbnf`.
+
+Negotiated lexing is the engine's answer, and every spec this front-end
+emits opts in (`lex: { relex: true }` — see `applyExactLexing`). When a
+buffered token's type does not match what an alternative expects, the
+engine **re-cuts that source span constrained to the tokens the
+alternative names**, instead of failing the alternative outright. A
+character's identity stops being frozen at first fetch and becomes
+something alternatives negotiate.
+
+The safety direction is the one an offline validator needs: every
+alternative still requires exactly its own tokens, so a renegotiated
+cut can turn a false failure into a match but can never make a wrong
+parse succeed. Mis-tokenising can only make a parse **fail**, never
+wrongly accept.
+
+Relex is off by default in the engine because grammars written *for* a
+tokenising lexer have disjoint token classes and never need it. It is
+also why the front-end probes the engine (`requireRelexSupport`): an
+engine too old to know the option would ignore it in silence, and the
+grammars that need it would then fail mid-input with an ordinary
+unexpected-character error, far from the real cause. Refusing to
+compile is the honest failure.
+
+The engine's relex works together with guards the shared compiler
+emits — FOLLOW and FOLLOW₂ exit guards on contested repetitions,
+keyword-shadow guards, left factoring — and with one front-end
+mitigation: when a grammar's classes are pairwise disjoint *and* no
+class holds the first character of a literal, overlap cannot arise at
+all, so the rule-directed gate is dropped entirely and every character
+has exactly one possible token (`eagerClasses`). Together these resolve
+the whole llama.cpp corpus; what remains genuinely out of reach is
+ambiguity that needs backtracking, which is a different problem — see
+[known-gaps.md §2 and §3](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing--resolved).
 
 ## Why tokenizer-token terminals are refused
 
@@ -181,6 +278,46 @@ That ordering is not cosmetic. The shared compiler maps an undefined
 tokens, which is right for ABNF (where a grammar may lean on the lexer)
 and wrong for GBNF (where those are ordinary rule names and an undefined
 one is a typo). Checking first means the typo is reported as a typo.
+
+## What this changes for AI developers
+
+Constrained decoding made grammars part of AI systems. Offline
+validation makes them part of software engineering:
+
+- **A test loop for grammars.** Without it, learning what a `.gbnf`
+  file really accepts means loading a multi-gigabyte model and
+  sampling — slow, GPU-bound, and nondeterministic, so a quiet grammar
+  bug can hide for weeks. Here a grammar compiles in milliseconds and
+  is tested like code: golden outputs must parse, near-miss bad ones
+  must not. That is precisely how this repo's own corpus suites work.
+- **Grammars under CI.** A wrong grammar does not crash anything — it
+  silently changes what a model may emit, or blocks what it should.
+  `gbnf-check grammar.gbnf golden.txt` turns "still compiles, still
+  accepts the goldens, still rejects the known bad shapes" into an
+  ordinary pipeline gate: the exit code is the API.
+- **A repair loop for agents that write grammars.** A model generating
+  GBNF from a description or a JSON schema gets its first correctness
+  signal *here*, not after a sampler loads: `gbnf-check --json`
+  returns one structured verdict — compile errors with `line`/`column`
+  or the offending rule, per-sample accept/reject with positions —
+  fast and deterministic enough to sit inside a
+  generate → check → repair loop.
+- **Separating grammar bugs from model bugs.** When constrained output
+  looks wrong there are two suspects. If the output you *expected*
+  does not parse offline, the grammar never said what you thought —
+  the live corpus's `optional props with empty name` case, where the
+  emitted grammar's language is a bare integer, is a real instance.
+  If it parses, investigate the sampling side.
+- **One grammar, both directions.** A parse returns a
+  `{rule, src, kids}` tree, so the grammar that constrained generation
+  also extracts structure from the result — no separate regex or
+  hand parser to drift out of sync with it.
+
+The boundaries are stated rather than hidden: a rejection here can be
+an engine limit for grammars that need backtracking, and this compiler
+accepts a superset of llama.cpp's line-break rules — see
+[known-gaps.md](known-gaps.md), and check a grammar with
+`llama-gbnf-validator` before shipping it to a sampler.
 
 ## What is not here yet
 

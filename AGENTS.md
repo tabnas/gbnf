@@ -32,6 +32,22 @@ therefore vLLM and SGLang), KoboldCpp, LocalAI and node-llama-cpp, and
 none of them can answer "does this string match my grammar?" without a
 model. This can.
 
+**Why nothing else can**: GBNF's original purpose is constrained
+decoding — at each generation step the sampler masks every vocabulary
+token that would step outside the grammar's language, so the model
+cannot emit a string the grammar rejects. In that whole ecosystem the
+grammar only ever runs *inside a sampler*; membership has no offline
+answer there. GBNF's quirks all follow from that origin — scannerless,
+mandatory `root`, ambiguity legal, tokenizer-token terminals — and so
+do this repo's design constraints. The full account is
+[`ts/doc/concepts.md` §"What GBNF is for"](ts/doc/concepts.md#what-gbnf-is-for);
+the developer consequences (grammar test loops, CI gating, the
+generate → check → repair loop that `gbnf-check --json` gives agents
+that write grammars) are
+[§"What this changes for AI developers"](ts/doc/concepts.md#what-this-changes-for-ai-developers).
+Keep both in mind when judging a change: anything that silently widens
+or narrows an accepted language defeats the purpose stated there.
+
 ## Repository map
 
 | Path | What it is |
@@ -81,7 +97,7 @@ compiler's guards, and are written up as such in `known-gaps.md` §2.
 **Do not narrow a corpus case to make it green.** The grammars are
 upstream bytes; the whole point is that they are not tidied for us.
 
-## Two things that are easy to get wrong
+## Three things that are easy to get wrong
 
 **1. GBNF string literals are case-SENSITIVE.** ABNF's are
 case-insensitive by default; this is the opposite. The IR carries
@@ -99,6 +115,20 @@ converter emits an empty ignore set and switches off
 space/line/comment/string/number/text/value lexing, so what remains is
 the grammar's own tokens. Removing any of that turns `tn.parse()` from
 an acceptance test into a lenient one — silently.
+
+**3. Negotiated lexing is load-bearing.** Every emitted spec sets
+`lex: { relex: true }`. GBNF terminals overlap freely
+(`ws ::= [ \t\n]*` next to the literal `"\n"` is the canonical case),
+and a tokeniser freezes one identity per span at first cut; relex lets
+an alternative re-cut the span under its own token list, which is what
+lets the corpus grammars parse their own samples. It cannot
+over-accept — a wrong cut still fails the parse — so removing it never
+shows up as a wrong answer, only as corpus grammars failing mid-input
+with unexpected-character errors far from the cause.
+`requireRelexSupport` probes the engine and refuses to compile on one
+that silently ignores the option; do not weaken the probe. The full
+mechanism is
+[`ts/doc/concepts.md` §"Negotiated lexing"](ts/doc/concepts.md#negotiated-lexing).
 
 ## Design notes for the meta-grammar
 
