@@ -278,8 +278,8 @@ func TestCorpusCompiles(t *testing.T) {
 //
 // The samples mirror ts/test/corpus.test.js — read off the grammar
 // text, valid ones paired with near-misses one character outside the
-// language. Five of the eight grammars now agree with TypeScript in
-// both directions.
+// language. All eight grammars agree with TypeScript in both
+// directions, since bnf/go v0.1.4 (see corpusExpectedFailures below).
 var corpusAccept = map[string][]string{
 	"arithmetic": {"a+b=c\n", "x=y\n"},
 	"c":          {"int f(){return x;}", "int intx(){intx = 3;}"},

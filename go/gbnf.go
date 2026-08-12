@@ -8,10 +8,12 @@
 // character classes, escapes, postfix repetition, comments — and the
 // same validation passes as ts/src/converter.ts run here: mandatory
 // root, defined references, tokenizer-token terminals rejected by
-// policy. Gbnf/ToSpec/Install emit a spec carrying GBNF's exact lexing.
-// Accept/reject conformance GRADING stays in ts/, because the Go
-// engine has no negotiated lexing (lex.relex; see parser/go
-// doc/differences.md) and this front-end has no markClassesEager port.
+// policy. Gbnf/ToSpec/Install emit a spec carrying GBNF's exact lexing,
+// negotiated lexing included (Lex.Relex, parser/go v0.8.5) — with which,
+// and with the contested-alternative guards from bnf/go v0.1.4, all
+// eight llama.cpp corpus grammars grade accept/reject here exactly as
+// they do in ts/. This front-end still has no markClassesEager port;
+// it is inert where it does not apply.
 //
 // The TypeScript implementation is canonical. The dialect, and the
 // scannerless limitations documented in ts/doc/known-gaps.md, are the

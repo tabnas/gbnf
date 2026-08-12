@@ -227,22 +227,23 @@ module proxy.
 
 ## Not implemented yet
 
-- **Go parse-level parity — 5 of 8, and the remaining blocker is
-  upstream.** Negotiated lexing landed in `parser/go` v0.8.5 and
-  `applyExactLexing` opts in, so the Go suite now grades accept/reject:
-  `chess`, `japanese`, `json`, `json_arr` and `list` agree with
-  TypeScript in both directions. `arithmetic`, `c` and `english` do
-  not, and are asserted as expected failures in
-  `go/gbnf_test.go` (`corpusExpectedFailures`) so a fix goes red.
-  **The cause is one gap, not three:** relex is necessary but not
-  sufficient — the shared compiler's contested-alternative guards
-  (`computeFollowSets`, `computeFollowPairs`, `leftFactor`, and the
-  keyword-shadow guards) exist only in the TypeScript `@tabnas/bnf`,
-  so a Go-compiled spec lacks the alternates that decide those three.
-  That is `@tabnas/bnf`'s to close (alignment rule 2), not this
-  repo's. `markClassesEager` also has no Go port — smaller, and local.
+- **`markClassesEager` has no Go port.** The front-end's one local
+  mitigation — dropping the rule-directed gate when a grammar's classes
+  are provably unambiguous — is TypeScript-only. Smaller than it
+  sounds, and inert where it does not apply: the whole corpus grades
+  in both directions without it.
 - **The Go renderer.** `renderGbnf` (IR → GBNF text) is TS-only,
   `ts/` being canonical; the Go port follows.
+
+**Go parse-level parity is done**, and is worth knowing about because
+it took two upstream changes, not one. Negotiated lexing landed in
+`parser/go` v0.8.5 (`applyExactLexing` opts in), which was necessary
+but not sufficient: the shared compiler's contested-alternative guards
+— FOLLOW/FOLLOW₂ repetition exits, keyword-shadow guards, left
+factoring — then landed in `bnf/go` v0.1.4 (tabnas/bnf#13). With both,
+**all eight corpus grammars agree with TypeScript in both
+directions**, and `corpusExpectedFailures` in `go/gbnf_test.go` is
+empty and stays empty, so the next gap has somewhere honest to live.
 
 The renderer that used to be on this list lives here now, by decision:
 emission is the notation's own inverse (this package owns "GBNF text →
