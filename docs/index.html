@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@tabnas/gbnf — does this text match your grammar?</title>
+<meta name="description" content="Check text against a llama.cpp GBNF grammar offline, without a model. A library and CLI for Python, TypeScript and Go, so a grammar can be unit-tested, gated in CI, and repaired in a loop.">
+
+<style>
+  /* The tabnas palette — deep monastery green, illuminated gold, warm
+     parchment — taken from tabnas.dev's design tokens, matching
+     tabnas.github.io/chess. The display and heading faces there are
+     webfonts; this page is deliberately one file and no external
+     requests, so it uses their documented fallbacks instead. */
+  :root {
+    color-scheme: light dark;
+
+    --green-950: #0b2d1a; --green-900: #0e3320; --green-800: #123c24;
+    --green-700: #14512e; --green-300: #82b89b; --green-200: #b9d7c6;
+    --gold-700: #9e7720;  --gold-500: #cb9e3e;  --gold-300: #e6cd8b;
+    --parch-50: #fdfbf3;  --parch-100: #faf6ea; --parch-200: #f7eed4;
+
+    --bg: var(--parch-100);
+    --surface: var(--parch-50);
+    --ink: var(--green-800);
+    --ink-soft: #3a4a3f;
+    --ink-mute: #6a7269;
+    --primary: var(--green-700);
+    --accent: var(--gold-700);
+    --rule: #ddd0af;
+    --code-bg: var(--parch-200);
+    --ok: #1d6b3f;
+    --no: #9a3324;
+
+    --font-heading: "Cormorant Garamond", Georgia, serif;
+    --font-body: Atkinson, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: var(--green-950);
+      --surface: var(--green-800);
+      --ink: #f1e8cd;
+      --ink-soft: #cdbf98;
+      --ink-mute: #9aa79b;
+      --primary: var(--green-300);
+      --accent: var(--gold-300);
+      --rule: #29452f;
+      --code-bg: var(--green-900);
+      --ok: #7fbd93;
+      --no: #e0928a;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.65;
+  }
+
+  .wrap { max-width: 54rem; margin: 0 auto; padding: 0 1.25rem; }
+
+  a { color: var(--primary); text-underline-offset: 2px; }
+  a:hover { color: var(--accent); }
+
+  /* --- masthead ------------------------------------------------------ */
+
+  header.top {
+    border-bottom: 1px solid var(--rule);
+    background: linear-gradient(180deg, var(--surface), transparent);
+  }
+  .brand {
+    display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap;
+    padding: 1.5rem 0 0.25rem;
+  }
+  .brand b {
+    font-family: var(--font-heading);
+    font-size: 1.9rem; font-weight: 600; letter-spacing: 0.01em;
+  }
+  .motto {
+    color: var(--ink-mute); font-family: var(--font-heading);
+    font-style: italic; font-size: 1.05rem;
+  }
+  .tagline { color: var(--ink-soft); margin: 0 0 0.4rem; max-width: 40rem; }
+  header .meta {
+    color: var(--ink-mute); font-size: 0.88rem; margin: 0 0 1.4rem;
+    max-width: 46rem;
+  }
+
+  h1 {
+    font-family: var(--font-heading);
+    font-size: clamp(2rem, 5vw, 3rem); line-height: 1.15;
+    font-weight: 600; margin: 2rem 0 0.5rem;
+  }
+  h2 {
+    font-family: var(--font-heading);
+    font-size: 1.6rem; font-weight: 600;
+    margin: 3.5rem 0 0.35rem; padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+  }
+  h3 { font-size: 1.05rem; margin: 2rem 0 0.35rem; }
+  h2 + p, h1 + p, h3 + p { margin-top: 0.35rem; }
+  p, ul, ol { max-width: 40rem; }
+  li { margin: 0.25rem 0; }
+  .lede { font-size: 1.15rem; color: var(--ink-soft); max-width: 40rem; }
+
+  code, pre { font-family: var(--font-mono); font-size: 0.85em; }
+  :not(pre) > code {
+    background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 3px;
+  }
+  pre {
+    background: var(--code-bg); color: var(--ink);
+    padding: 0.9rem 1.1rem; border-radius: 6px;
+    border: 1px solid var(--rule);
+    overflow-x: auto; line-height: 1.55;
+  }
+  pre .c { color: var(--ink-mute); font-style: italic; }
+  pre .k { color: var(--accent); }
+  pre .y { color: var(--ok); }
+  pre .n { color: var(--no); }
+
+  /* minmax(0, …) rather than 1fr: a grid item's default min-width is
+     auto, so a wide <pre> would push the track past the viewport and
+     scroll the whole page sideways instead of scrolling inside itself. */
+  .cols {
+    display: grid; gap: 1.25rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  @media (max-width: 44rem) { .cols { grid-template-columns: minmax(0, 1fr); } }
+  .cols > * { min-width: 0; }
+  .cols h3 { margin-top: 0; }
+
+  figure { margin: 1.5rem 0; }
+  figcaption {
+    color: var(--ink-mute); font-size: 0.88rem; margin-top: 0.5rem;
+    max-width: 40rem;
+  }
+
+  .diagram {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 6px; padding: 0.9rem; overflow-x: auto;
+  }
+  .diagram svg { display: block; }
+
+  .cards {
+    display: grid; gap: 0.9rem;
+    grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+    margin: 1.5rem 0;
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 6px; padding: 0.9rem 1.1rem;
+  }
+  .card h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+  .card p { margin: 0; font-size: 0.92rem; color: var(--ink-soft); }
+
+  table.opts {
+    border-collapse: collapse; width: 100%; margin: 1.25rem 0;
+    font-size: 0.94rem;
+  }
+  table.opts th, table.opts td {
+    text-align: left; padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--rule); vertical-align: top;
+  }
+  table.opts th {
+    color: var(--ink-mute); font-weight: 600; font-size: 0.85rem;
+  }
+  table.opts td:first-child code { white-space: nowrap; }
+  .scroll { overflow-x: auto; }
+
+  .pill {
+    display: inline-block; font-family: var(--font-mono); font-size: 0.78rem;
+    background: var(--code-bg); border: 1px solid var(--rule);
+    border-radius: 999px; padding: 0.1rem 0.6rem; margin-right: 0.3rem;
+  }
+
+  .note {
+    border-left: 3px solid var(--accent); padding: 0.1rem 0 0.1rem 0.9rem;
+    margin: 1.5rem 0; color: var(--ink-soft); max-width: 40rem;
+  }
+
+  footer {
+    margin-top: 4rem; border-top: 1px solid var(--rule);
+    padding: 1.5rem 0 4rem; color: var(--ink-mute); font-size: 0.9rem;
+  }
+  footer a { margin-right: 1rem; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <b>@tabnas/gbnf</b>
+      <span class="motto">does this text match your grammar?</span>
+    </div>
+    <p class="tagline">
+      GBNF constrains a model while it generates. This answers the same
+      question afterwards, offline, with no model in the loop — from
+      Python, TypeScript, Go, or a shell.
+    </p>
+    <p class="meta">
+      <span class="pill">MIT</span>
+      <span class="pill">no model required</span>
+      <span class="pill">python · typescript · go · c abi</span>
+    </p>
+  </div>
+</header>
+
+<main class="wrap">
+
+<h1>Test your grammar like it's code</h1>
+
+<p class="lede">
+  Constrained decoding guarantees your model conforms to the grammar
+  <em>as written</em>. It does not guarantee the grammar says what you
+  meant, and it does nothing at all for text produced without it.
+</p>
+
+<p>
+  GBNF is the notation llama.cpp uses for constrained decoding: at each
+  step the sampler masks every vocabulary token that would leave the
+  grammar's language, so the model physically cannot emit malformed
+  output. It is consumed by llama.cpp, XGrammar — and therefore vLLM and
+  SGLang — plus KoboldCpp, LocalAI and node-llama-cpp.
+</p>
+
+<p>
+  In every one of those the grammar only ever runs <em>inside
+  generation</em>. None of them can answer <em>“does this string match my
+  grammar?”</em> without spinning up a model. The ecosystem's one offline
+  checker, llama.cpp's <code>llama-gbnf-validator</code>, is a C++ example
+  binary that answers accept or reject and nothing else — no library form,
+  no AST, no structured errors.
+</p>
+
+<p>That gap is what this fills.</p>
+
+<h2>Start here</h2>
+
+<p>
+  A grammar and a sample. The exit code alone is the answer, so this
+  drops straight into a shell script or a CI step:
+</p>
+
+<pre><span class="c"># npm i -g @tabnas/gbnf</span>
+$ gbnf-check json.gbnf --text '{"a": 1}' --text '{"a": 1,}'
+grammar json.gbnf: ok
+sample text#0: <span class="y">accept</span>
+sample text#1: <span class="n">REJECT</span> — [tabnas/unexpected]: unexpected character(s): , (line 1, column 8)
+$ echo $?
+1</pre>
+
+<p>From Python, where models are usually driven:</p>
+
+<pre><span class="k">import</span> gbnf
+
+<span class="k">with</span> gbnf.Grammar.from_file(<span class="y">"json.gbnf"</span>) <span class="k">as</span> g:
+    g.accepts(<span class="y">'{"a": 1}'</span>)      <span class="c"># True</span>
+    g.accepts(<span class="y">'{"a": 1,}'</span>)     <span class="c"># False</span>
+
+    v = g.check(<span class="y">'{"a": 1,}'</span>)
+    v.accept                   <span class="c"># False</span>
+    v.error[<span class="y">"message"</span>]        <span class="c"># '[tabnas/unexpected]: unexpected character(s): ,'</span></pre>
+
+<p>From TypeScript and Go, the same grammar on a parser instance:</p>
+
+<div class="cols">
+<div>
+<h3>TypeScript</h3>
+<pre><span class="k">const</span> { Tabnas } = require(<span class="y">'@tabnas/parser'</span>)
+<span class="k">const</span> { gbnf } = require(<span class="y">'@tabnas/gbnf'</span>)
+
+<span class="k">const</span> tn = <span class="k">new</span> Tabnas({ plugins: [gbnf] })
+tn.gbnf(src)
+
+tn.parse(<span class="y">'{"a": 1}'</span>)  <span class="c">// => the AST</span></pre>
+</div>
+<div>
+<h3>Go</h3>
+<pre>tn := tabnas.Make()
+<span class="k">if</span> _, err := gbnf.Install(tn, src, <span class="k">nil</span>); err != <span class="k">nil</span> {
+    <span class="c">// the grammar is broken</span>
+}
+
+<span class="k">if</span> _, err := tn.Parse(<span class="y">`{"a": 1}`</span>); err != <span class="k">nil</span> {
+    <span class="c">// outside the language — err says where</span>
+}</pre>
+</div>
+</div>
+
+<h2>Four things you would use it for</h2>
+
+<div class="cards">
+  <div class="card">
+    <h3>Unit-test a grammar</h3>
+    <p>
+      Run known-good samples through it before a run. A grammar narrower
+      than you intended otherwise stays invisible until real input fails.
+    </p>
+  </div>
+  <div class="card">
+    <h3>Check unconstrained output</h3>
+    <p>
+      Cached completions, another provider, hand-written fixtures,
+      fine-tuning targets. Constrained decoding never touched any of it.
+    </p>
+  </div>
+  <div class="card">
+    <h3>Gate a grammar in CI</h3>
+    <p>
+      Exit codes and <code>--json</code> mean editing a grammar can fail a
+      build the way editing code does.
+    </p>
+  </div>
+  <div class="card">
+    <h3>Close an agent's repair loop</h3>
+    <p>
+      A rejection comes back as a code, a line and a column; a grammar
+      that will not compile names the rule. Enough to fix either without
+      a human reading stderr.
+    </p>
+  </div>
+</div>
+
+<p>
+  The first is the one people underestimate. A grammar is code, it can be
+  wrong in ways that never throw, and nothing else in the ecosystem lets
+  you assert what it accepts:
+</p>
+
+<pre><span class="k">def</span> test_response_grammar():
+    <span class="k">with</span> gbnf.Grammar.from_file(<span class="y">"response.gbnf"</span>) <span class="k">as</span> g:
+        <span class="k">for</span> good <span class="k">in</span> GOLDEN_OUTPUTS:
+            <span class="k">assert</span> g.accepts(good)      <span class="c"># the grammar admits what you expect</span>
+        <span class="k">for</span> bad <span class="k">in</span> NEAR_MISSES:
+            <span class="k">assert</span> <span class="k">not</span> g.accepts(bad)  <span class="c"># and excludes what it should</span></pre>
+
+<p>
+  Both directions matter. A grammar that accepted everything would pass a
+  suite that only ever checked the happy path — which is why this repo's
+  own corpus is graded both ways, every sample, every runtime.
+</p>
+
+<h2>Three outcomes, not two</h2>
+
+<p>
+  A rejection is an <em>answer</em>, not a failure — an out-of-language
+  string comes back as a falsy verdict, never an exception. Invalid calls
+  and operational failures still raise, as they should: a grammar that
+  will not compile, a closed handle, a bad argument type, an unreadable
+  file, a shared library that cannot be found.
+</p>
+
+<div class="scroll">
+<table class="opts">
+  <tr><th>situation</th><th>Python</th><th>CLI exit</th></tr>
+  <tr>
+    <td>grammar does not compile</td>
+    <td><code>GbnfError</code> raised</td><td><code>2</code></td>
+  </tr>
+  <tr>
+    <td>input outside the language</td>
+    <td>falsy <code>Verdict</code></td><td><code>1</code></td>
+  </tr>
+  <tr>
+    <td>input in the language</td>
+    <td>truthy <code>Verdict</code></td><td><code>0</code></td>
+  </tr>
+  <tr>
+    <td>bad arguments, unreadable file</td>
+    <td><code>TypeError</code> / <code>OSError</code></td><td><code>3</code></td>
+  </tr>
+</table>
+</div>
+
+<p>
+  Collapsing the first two is the mistake worth avoiding: it tells you
+  your <em>model's output</em> was wrong when in fact your
+  <em>grammar</em> was, and sends you debugging the wrong thing.
+</p>
+
+<h2>The report is machine-readable</h2>
+
+<p>
+  <code>--json</code> writes a stable document to stdout — the shape
+  tooling and agents consume, so nothing has to parse prose:
+</p>
+
+<pre>$ gbnf-check json.gbnf --text '{"a": 1,}' --json
+{
+  <span class="k">"tool"</span>: "gbnf-check",
+  <span class="k">"version"</span>: "0.1.4",
+  <span class="k">"ok"</span>: false,
+  <span class="k">"exit"</span>: 1,
+  <span class="k">"grammar"</span>: {
+    "source": "json.gbnf",
+    "ok": true,
+    "error": null
+  },
+  <span class="k">"samples"</span>: [
+    {
+      "source": "text#0",
+      "ok": false,
+      "length": 9,
+      "error": {
+        "name": "SyntaxError",
+        "message": "[tabnas/unexpected]: unexpected character(s): ,",
+        "code": "unexpected",
+        "line": 1,
+        "column": 8
+      }
+    }
+  ],
+  <span class="k">"caveats"</span>: [
+    {
+      "code": "rejection-may-be-engine-limit",
+      "message": "a rejection is this engine's answer, not always the grammar's: a grammar that needs backtracking can reject here and still constrain a sampler correctly",
+      "url": "https://github.com/tabnas/gbnf/blob/main/ts/doc/known-gaps.md"
+    }
+  ]
+}</pre>
+
+<p>
+  That <code>caveats</code> entry is deliberate and it is worth reading.
+  A rejection here is <em>this engine's</em> answer, not always the
+  grammar's: a grammar needing backtracking can reject offline and still
+  constrain a sampler correctly. The report says so rather than letting
+  you conclude your output was invalid.
+</p>
+
+<h2>Compile once, validate anywhere</h2>
+
+<p>
+  Your inference workers do not need the GBNF front-end. Compile the
+  grammar at build time into a pure-data <em>recognition spec</em>, ship
+  that, and validate with the engine alone:
+</p>
+
+<figure>
+<div class="diagram">
+<svg viewBox="0 0 700 136" width="700" height="136" role="img"
+     aria-label="GBNF text is compiled by libtabnasgbnf into a recognition spec, which libtabnas runs to produce verdicts.">
+  <style>
+    .bx { fill: var(--code-bg); stroke: var(--rule); stroke-width: 1; }
+    .lb { fill: var(--ink); font: 600 13px var(--font-body); }
+    .sb { fill: var(--ink-mute); font: 11px var(--font-mono); }
+    .ar { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+    .ah { fill: var(--accent); }
+  </style>
+
+  <rect class="bx" x="4" y="38" width="130" height="48" rx="6"/>
+  <text class="lb" x="69" y="60" text-anchor="middle">GBNF text</text>
+  <text class="sb" x="69" y="76" text-anchor="middle">root ::= …</text>
+
+  <text class="sb" x="194" y="50" text-anchor="middle">libtabnasgbnf</text>
+  <line class="ar" x1="142" y1="62" x2="238" y2="62"/>
+  <polygon class="ah" points="248,62 238,57 238,67"/>
+
+  <rect class="bx" x="254" y="38" width="180" height="48" rx="6"/>
+  <text class="lb" x="344" y="60" text-anchor="middle">recognition spec</text>
+  <text class="sb" x="344" y="76" text-anchor="middle">pure data · JSON</text>
+
+  <text class="sb" x="494" y="50" text-anchor="middle">libtabnas</text>
+  <line class="ar" x1="442" y1="62" x2="538" y2="62"/>
+  <polygon class="ah" points="548,62 538,57 538,67"/>
+
+  <rect class="bx" x="554" y="38" width="140" height="48" rx="6"/>
+  <text class="lb" x="624" y="60" text-anchor="middle">verdicts</text>
+  <text class="sb" x="624" y="76" text-anchor="middle">accept / reject</text>
+
+  <text class="sb" x="69" y="110" text-anchor="middle">build time</text>
+  <text class="sb" x="344" y="110" text-anchor="middle">ship this</text>
+  <text class="sb" x="624" y="110" text-anchor="middle">run time</text>
+</svg>
+</div>
+<figcaption>
+  The front-end is needed only where the grammar is compiled. Anything
+  that can load the engine can then answer accept/reject, in any language
+  with an FFI.
+</figcaption>
+</figure>
+
+<pre>spec = gbnf.compile_spec(open(<span class="y">"json.gbnf"</span>).read(), as_text=<span class="k">True</span>)
+<span class="c"># ship `spec` to a service that has the engine and has never heard of GBNF</span></pre>
+
+<div class="note">
+  <p>
+    This arrived later than the rest of the surface, on purpose. The
+    serialized form used to drop GBNF's lexing configuration, so a
+    reloaded <code>arithmetic.gbnf</code> lexed <code>a+b</code> as one
+    token and rejected <code>a+b=c</code> — it loaded cleanly and answered
+    differently. For a validator that is the worst possible failure,
+    because you would have trusted it. The function shipped only once the
+    round trip agreed with a native install on every corpus sample, in
+    both directions.
+  </p>
+</div>
+
+<h2>So how does it read the notation?</h2>
+
+<p>
+  Skip ahead if you only wanted the tool. This part matters if you care
+  whether the answers can be trusted.
+</p>
+
+<p>
+  GBNF is <strong>scannerless</strong> — its grammar describes the input
+  one character at a time — while the engine underneath is a tokenising
+  parser that ships JSON-shaped matchers and an ignore set. Left alone,
+  <code>root ::= "a"</code> would happily accept <code>" a "</code>, and a
+  <code>#</code> in your <em>input</em> would vanish as a comment.
+</p>
+
+<p>
+  So the compiled grammar carries an empty ignore set and switches every
+  default matcher off. That configuration <em>is</em> part of the accepted
+  language, not a performance knob — which is exactly why the serialized
+  form dropping it was a correctness bug rather than a cosmetic one.
+</p>
+
+<p>
+  The front-end that reads GBNF is itself a tabnas grammar: a rule table
+  the engine runs, in both TypeScript and Go, rather than a hand-written
+  parser in each. One definition of the notation, and the engine proves
+  itself on its own front-end.
+</p>
+
+<h3>What it is graded against</h3>
+
+<ul>
+  <li>
+    <strong>All eight</strong> grammars from llama.cpp's
+    <code>grammars/</code> directory, copied verbatim, compiled and
+    parsed — accept <em>and</em> reject.
+  </li>
+  <li>
+    <strong>All seventy</strong> expected outputs of llama.cpp's
+    JSON-schema-to-grammar converter, sampled in both directions.
+  </li>
+  <li>
+    The eight grammars and their samples are graded in
+    <strong>all three</strong> runtimes — TypeScript, Go and Python — so a
+    disagreement there is a disagreement <em>between runtimes</em> rather
+    than a bug in one binding. The seventy live grammars are graded in
+    full by TypeScript and compiled (not sampled) by Go; Python does not
+    run them.
+  </li>
+</ul>
+
+<p>
+  The corpus grammars are upstream bytes and are never tidied to make a
+  test pass. Exactly one sample is recorded as an expected failure —
+  <code>chess.gbnf</code> with <code>Nf3</code>, which needs backtracking.
+  If it starts working the suite goes <em>red</em>, because an expected
+  failure that quietly becomes a pass is a documentation bug.
+</p>
+
+<h2>What it will not do</h2>
+
+<ul>
+  <li>
+    <strong>It is not a sampler.</strong> It will not make your generation
+    constrained or your model faster. llama.cpp still does that; this
+    answers questions either side of it.
+  </li>
+  <li>
+    <strong>It is not a reason to adopt GBNF.</strong> If you are not
+    already using it, this changes nothing for you.
+  </li>
+  <li>
+    <strong>A rejection is not always the grammar's verdict.</strong> A
+    grammar needing backtracking can reject here and still constrain a
+    sampler correctly. The JSON report flags it.
+  </li>
+  <li>
+    <strong>Nor is a pass proof that llama.cpp will accept it.</strong>
+    Rule boundaries here use a two-token <code>NM ::=</code> lookahead —
+    exact, but insensitive to line breaks, where llama.cpp ends a rule at
+    a top-level newline. This accepts a <em>superset</em>, so a grammar
+    that continues across lines without <code>|</code> can pass here and
+    still be refused by the sampler. Run
+    <code>llama-gbnf-validator</code> too if that is the contract you
+    need.
+  </li>
+  <li>
+    <strong>Tokenizer-token terminals are refused, on purpose.</strong>
+    <code>&lt;think&gt;</code>, <code>&lt;[1000]&gt;</code>,
+    <code>!&lt;/think&gt;</code> and friends are sampler-level: their
+    meaning depends on a model's tokenizer, which an offline checker does
+    not have. They parse — so the error can name the rule — and then
+    compilation fails rather than guessing they were literal text, which
+    would change the accepted language.
+  </li>
+  <li>
+    <strong>The Python package is not on PyPI yet.</strong> There is no
+    <code>pyproject.toml</code> either, so <code>import gbnf</code> needs
+    <code>py/</code> on <code>PYTHONPATH</code> after you build the shared
+    library. A wheel matrix is the obvious next step and is not done.
+  </li>
+</ul>
+
+<h2>Take it further</h2>
+
+<div class="cols">
+<div>
+<h3>tabnas/gbnf</h3>
+<p>
+  The front-end, the CLI, the C ABI and the Python binding. Also
+  <code>renderGbnf</code>, the inverse arrow — grammar IR back to GBNF
+  text, which with <code>@tabnas/abnf</code> makes an ABNF → GBNF bridge.
+</p>
+</div>
+<div>
+<h3>tabnas.dev</h3>
+<p>
+  The parsing engine underneath, and the shared BNF-family compiler that
+  GBNF, ABNF and EBNF all front. Grammars are data there, which is what
+  makes a serialized spec possible at all.
+</p>
+</div>
+</div>
+
+<h3>Install</h3>
+
+<pre><span class="c"># the CLI and the TypeScript library</span>
+npm i @tabnas/gbnf
+
+<span class="c"># the Go module</span>
+go get github.com/tabnas/gbnf/go
+
+<span class="c"># the Python binding: build the shared library, then put py/ on the path</span>
+<span class="c"># (there is no packaging yet — see “what it will not do”)</span>
+git clone https://github.com/tabnas/gbnf &amp;&amp; cd gbnf
+(cd go/clib &amp;&amp; ./build.sh)
+PYTHONPATH=$PWD/py python3 -c <span class="y">'import gbnf; print(gbnf.version())'</span></pre>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>
+      <a href="https://github.com/tabnas/gbnf">GitHub</a>
+      <a href="https://www.npmjs.com/package/@tabnas/gbnf">npm</a>
+      <a href="https://pkg.go.dev/github.com/tabnas/gbnf/go">pkg.go.dev</a>
+      <a href="https://tabnas.dev">tabnas.dev</a>
+    </p>
+    <p>
+      MIT. Copyright &copy; Richard Rodger.
+      GBNF is llama.cpp's notation; the corpus grammars on which this is
+      graded are upstream files, used verbatim.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
