@@ -107,7 +107,14 @@ _lib = None
 
 
 def load(path: Optional[str] = None):
-    """Load the shared library. Called automatically on first use."""
+    """Load the shared library. Called automatically on first use.
+
+    An explicit ``path`` is remembered, so the documented
+    ``gbnf.load(path=...)`` then ``gbnf.Grammar(src)`` sequence works —
+    caching only the auto-discovered library would send the second call
+    back to discovery and fail for anyone whose library is not on the
+    default search path.
+    """
     global _lib
     if _lib is not None and path is None:
         return _lib
@@ -129,8 +136,7 @@ def load(path: Optional[str] = None):
     lib.gbnf_free.restype = None
     lib.gbnf_free.argtypes = [ctypes.c_void_p]
 
-    if path is None:
-        _lib = lib
+    _lib = lib
     return lib
 
 

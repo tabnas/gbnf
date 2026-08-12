@@ -55,21 +55,37 @@ func TestVersionDoc(t *testing.T) {
 // samples go/gbnf_test.go grades natively, so a disagreement here is a
 // disagreement between the library and the package it wraps.
 func TestCorpusBothDirections(t *testing.T) {
+	// All EIGHT corpus grammars, matching go/gbnf_test.go and
+	// ts/test/corpus.test.js. A census short of the full set would let a
+	// C-ABI regression in an omitted grammar pass a test that claims
+	// whole-corpus conformance.
 	accept := map[string][]string{
 		"arithmetic": {"a+b=c\n", "x=y\n"},
+		"c":          {"int f(){return x;}", "int intx(){intx = 3;}"},
 		"chess":      {"1. e4 e5\n2. Nxe4 e5\n"},
 		"english":    {"Hello, world!", "a b c"},
 		"japanese":   {"こんにちは"},
 		"json":       {"{\"answer\": [1, 2, 3]}", "{\"a\": \"\\n\"}"},
+		"json_arr":   {"[\n1,\n2\n]"},
 		"list":       {"- a\n"},
 	}
 	reject := map[string][]string{
 		"arithmetic": {"a=b", "a=b+c\n"},
+		"c":          {"int x=1;\n", "int x = 1;\n"},
 		"chess":      {"1. e4\n"},
-		"english":    {"hello world\n"},
+		"english":    {"hello world\n", "Hello world.\n"},
 		"japanese":   {"hello"},
 		"json":       {"{\"a\":1,}"},
+		"json_arr":   {"[\n1, 2\n]"},
 		"list":       {"-a\n"},
+	}
+
+	// The census itself, pinned the way the TS suite pins it: a grammar
+	// added to the corpus without samples here should show up as a gap.
+	const corpusSize = 8
+	if len(accept) != corpusSize || len(reject) != corpusSize {
+		t.Fatalf("corpus census is %d accept / %d reject, want %d each",
+			len(accept), len(reject), corpusSize)
 	}
 
 	for name, samples := range accept {

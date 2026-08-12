@@ -54,9 +54,17 @@ import "unsafe"
 
 // goBytes copies a (pointer, length) pair into Go memory. The C memory
 // belongs to the caller and may be freed the moment this returns.
+//
+// (NULL, 0) is accepted as the empty buffer, which is how C conveys one.
+// Rejecting it would make empty input unrepresentable through the
+// conventional spelling — and empty input is a real question to ask: a
+// grammar like `root ::= "x"*` accepts it.
 func goBytes(src *C.char, n C.int) (string, bool) {
-	if src == nil || n < 0 {
+	if n < 0 {
 		return "", false
+	}
+	if src == nil {
+		return "", n == 0
 	}
 	return C.GoStringN(src, n), true
 }

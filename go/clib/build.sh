@@ -27,14 +27,27 @@ PKG="."
 host_os=$(go env GOOS)
 host_arch=$(go env GOARCH)
 
+# A target NAMED on the command line is a requirement, not a wish: if it
+# cannot be built the script fails, so release automation cannot mistake
+# an incomplete artifact set for a successful build. `all` stays
+# best-effort, because its whole point is "whatever this host can reach".
 targets=""
+explicit=0
 case "${1:-host}" in
   host) targets="$host_os/$host_arch" ;;
   all)  targets="linux/amd64 linux/arm64 windows/amd64"
         # Only offer darwin when we are ON darwin; see the note above.
         [ "$host_os" = "darwin" ] && targets="$targets darwin/amd64 darwin/arm64" ;;
-  *)    targets="$*" ;;
+  *)    targets="$*"; explicit=1 ;;
 esac
+
+# skip_or_fail <message>: a skip when the target set was inferred, a hard
+# failure when the caller asked for this target by name.
+skip_or_fail() {
+  echo "$1" >&2
+  [ "$explicit" = "1" ] && exit 1
+  return 0
+}
 
 # zig's target triple and the shared-library extension for a Go target.
 zig_target() {
@@ -70,16 +83,16 @@ for t in $targets; do
       go build -buildmode=c-shared -o "$out" "$PKG"
   else
     if [ "$os" = "darwin" ]; then
-      echo "skip $t: darwin cannot be cross-compiled (needs Apple's SDK); build on a macOS host" >&2
+      skip_or_fail "skip $t: darwin cannot be cross-compiled (needs Apple's SDK); build on a macOS host"
       continue
     fi
     zt=$(zig_target "$os" "$arch")
     if [ -z "$zt" ]; then
-      echo "skip $t: no zig target mapping" >&2
+      skip_or_fail "skip $t: no zig target mapping"
       continue
     fi
     if ! command -v "$ZIG" >/dev/null 2>&1 && [ ! -x "$ZIG" ]; then
-      echo "skip $t: zig not found (set ZIG=/path/to/zig)" >&2
+      skip_or_fail "skip $t: zig not found (set ZIG=/path/to/zig)"
       continue
     fi
     # go passes the compiler as one word, so the -target flag needs a

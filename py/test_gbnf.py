@@ -84,6 +84,20 @@ class TestSurface(unittest.TestCase):
         with grammar("japanese") as g:
             self.assertTrue(g.accepts("こんにちは"))
 
+    def test_explicit_path_is_remembered(self):
+        # The documented load(path=...) then Grammar(src) sequence. If
+        # only auto-discovered libraries were cached, the second call
+        # would go back to discovery and fail for anyone whose library
+        # is not on the default search path.
+        lib = gbnf._default_lib_path()
+        gbnf._lib = None
+        try:
+            gbnf.load(lib)
+            with grammar("list") as g:
+                self.assertTrue(g.accepts("- a\n"))
+        finally:
+            gbnf._lib = None
+
     def test_context_manager_and_reuse(self):
         with grammar("list") as g:
             for _ in range(3):
