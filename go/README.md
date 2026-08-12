@@ -13,7 +13,7 @@ mandatory `root`, defined references, tokenizer-token terminals
 rejected by policy. The suite mirrors `ts/test/gbnf.test.js`, compiles
 all eight llama.cpp corpus grammars in
 [`../test/corpus/`](../test/corpus/), and **grades accept/reject** on
-five of them.
+all of them.
 
 ```go
 import (
@@ -25,25 +25,22 @@ tn := tabnas.Make()
 spec, err := gbnf.Install(tn, `root ::= "hi" | "hello"`, nil)
 ```
 
-**What parity still needs.** Negotiated lexing landed in
-`parser/go` v0.8.5 and this front-end opts in, which is what makes
-grading possible at all — `chess`, `japanese`, `json`, `json_arr` and
-`list` now agree with TypeScript in **both** directions. Three
-grammars do not yet: `arithmetic`, `c` and `english` compile and
-correctly reject their near-misses, but cannot parse samples that are
-inside their language. Those are asserted as expected failures in
-`gbnf_test.go`, so a fix turns the suite red rather than passing
-unnoticed.
+**Parity.** Two pieces made grading possible in both directions.
+Negotiated lexing landed in `parser/go` v0.8.5 and this front-end opts
+in; the shared compiler's contested-alternative guards — FOLLOW /
+FOLLOW₂ repetition exits, keyword-shadow guards, left factoring —
+landed in `bnf/go` v0.1.4 (tabnas/bnf#13). With both in place, **all
+eight corpus grammars agree with TypeScript in both directions**;
+`bnf/go/doc/differences.md` records how that was verified (65/65
+accept, 30/30 reject against the tables `ts/test/corpus.test.js`
+pins, and rule-for-rule emitter comparison on `c.gbnf`).
 
-The cause is one gap, not three: relex is necessary but not
-sufficient. The shared compiler's contested-alternative guards —
-FOLLOW / FOLLOW₂ repetition exits, keyword-shadow guards, left
-factoring (`computeFollowSets`, `computeFollowPairs`, `leftFactor` in
-the TypeScript `@tabnas/bnf`) — have no counterpart in `bnf/go`
-v0.1.2, so a Go-compiled spec simply lacks the alternates that decide
-those grammars. Closing it belongs to `@tabnas/bnf`, not here. This
-front-end also has no `markClassesEager` port, which is a smaller,
-local follow-on.
+`corpusExpectedFailures` in `gbnf_test.go` is empty and stays: a new
+gap goes in the table, and a closed one turns the suite red rather
+than passing unnoticed. (Two of its former entries — c's
+`int x = 1;` and english's trailing newline — turned out to be
+outside their grammars' languages, mislabelled as gaps; they moved to
+the reject table.)
 
 Astral character classes additionally have no serialisable form the Go
 runtime can load (`ts/doc/known-gaps.md` §5).
