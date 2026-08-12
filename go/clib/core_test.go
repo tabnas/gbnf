@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	tabnas "github.com/tabnas/parser/go"
 )
 
 func doc(t *testing.T, s string) map[string]any {
@@ -113,6 +115,94 @@ func TestCorpusBothDirections(t *testing.T) {
 				t.Errorf("%s.gbnf accepted %q, which is outside its language",
 					name, s)
 			}
+		}
+	}
+}
+
+// The property that makes gbnf_compile safe to offer at all: a grammar
+// compiled here and reloaded into a BARE engine must accept and reject
+// exactly what a native install does.
+//
+// "It emitted valid JSON" is not the property. Until @tabnas/bnf v0.1.5
+// the serialized form silently dropped GBNF's lexing configuration, so
+// the spec loaded fine and then answered differently — arithmetic.gbnf
+// rejecting "a+b=c" because the reloaded grammar lexed "a+b" as one text
+// token. This grades the round trip against the corpus in BOTH
+// directions, so that class of regression fails here rather than in
+// somebody's pipeline.
+func TestCompiledSpecAgreesWithNativeInstall(t *testing.T) {
+	accept := map[string][]string{
+		"arithmetic": {"a+b=c\n", "x=y\n"},
+		"c":          {"int f(){return x;}", "int intx(){intx = 3;}"},
+		"chess":      {"1. e4 e5\n2. Nxe4 e5\n"},
+		"english":    {"Hello, world!", "a b c"},
+		"japanese":   {"こんにちは"},
+		"json":       {"{\"answer\": [1, 2, 3]}", "{\"a\": \"\\n\"}"},
+		"json_arr":   {"[\n1,\n2\n]"},
+		"list":       {"- a\n"},
+	}
+	reject := map[string][]string{
+		"arithmetic": {"a=b", "a=b+c\n"},
+		"c":          {"int x=1;\n", "int x = 1;\n"},
+		"chess":      {"1. e4\n"},
+		"english":    {"hello world\n", "Hello world.\n"},
+		"japanese":   {"hello"},
+		"json":       {"{\"a\":1,}"},
+		"json_arr":   {"[\n1, 2\n]"},
+		"list":       {"-a\n"},
+	}
+
+	graded := 0
+	for name := range accept {
+		res := doc(t, compileSpec(corpus(t, name)))
+		if res["ok"] != true {
+			t.Errorf("%s.gbnf did not compile to a spec: %v", name, res)
+			continue
+		}
+
+		// A bare engine: no GBNF front-end involved, exactly as a
+		// libtabnas caller in another language would have it.
+		gs, err := tabnas.GrammarSpecFromJSON([]byte(res["spec"].(string)))
+		if err != nil {
+			t.Errorf("%s.gbnf: emitted spec will not load: %v", name, err)
+			continue
+		}
+		tn := tabnas.Make()
+		if err := tn.Grammar(gs); err != nil {
+			t.Errorf("%s.gbnf: emitted spec will not install: %v", name, err)
+			continue
+		}
+
+		for _, s := range accept[name] {
+			if _, err := tn.Parse(s); err != nil {
+				t.Errorf("%s.gbnf compiled spec REJECTED %q, which a native "+
+					"install accepts: %v", name, s, firstLine(err.Error()))
+			}
+			graded++
+		}
+		for _, s := range reject[name] {
+			if _, err := tn.Parse(s); err == nil {
+				t.Errorf("%s.gbnf compiled spec ACCEPTED %q, which is outside "+
+					"its language", name, s)
+			}
+			graded++
+		}
+	}
+	if graded != 23 {
+		t.Errorf("graded %d samples, expected the full 23-sample census", graded)
+	}
+}
+
+// A grammar that will not compile must not yield a spec — otherwise a
+// caller could ship an empty grammar believing it compiled.
+func TestCompileRefusesABrokenGrammar(t *testing.T) {
+	for _, src := range []string{"root ::= [", "root ::= nosuchrule", ""} {
+		res := doc(t, compileSpec(src))
+		if res["ok"] != false {
+			t.Errorf("%q compiled to a spec: %v", src, res)
+		}
+		if _, leaked := res["spec"]; leaked {
+			t.Errorf("%q: a failure must not carry a spec: %v", src, res)
 		}
 	}
 }

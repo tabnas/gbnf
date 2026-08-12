@@ -57,6 +57,7 @@ of bug entirely, which is why the C surface is shaped this way.
 | `gbnf_version()` | `{"ok":true,"version":"…","engine":"…"}` |
 | `gbnf_grammar(src, len)` | `{"ok":true,"handle":N}` |
 | `gbnf_parse(handle, src, len)` | `{"ok":true,"accept":true}` or `{"ok":true,"accept":false,"error":{…}}` |
+| `gbnf_compile(src, len)` | `{"ok":true,"spec":"…"}` |
 | `gbnf_grammar_free(handle)` | — |
 | `gbnf_free(str)` | — |
 
@@ -117,11 +118,32 @@ The split is not decoration. Go does not support cgo in `_test.go`
 files, so anything beside `import "C"` is unreachable from a test;
 keeping the behaviour in `core.go` is what makes it testable.
 
-## Not here yet
+## Compile once, validate anywhere
 
-**Compile once, run elsewhere.** A `gbnf_compile` returning a serialized
-recognition spec — so a grammar could be compiled here and executed by
-`libtabnas` in another process or language — is the natural next
-function. It waits on [tabnas/bnf#14] being released: without that fix
-the emitted spec silently accepts a different language than the grammar
-it came from, and shipping that would be worse than not shipping it.
+`gbnf_compile` is the other door. It turns GBNF text into a serialized
+**recognition spec** — pure data that `libtabnas` loads and runs with no
+GBNF front-end present:
+
+```
+GBNF text ──libtabnasgbnf──▶ recognition spec ──libtabnas──▶ verdicts
+              (compile here)                    (validate anywhere)
+```
+
+Compile at build time, ship the spec, validate in a service that never
+needs to know GBNF exists. Recognition rather than pure form because the
+AST does not cross this boundary — tree-building hooks would be dead
+weight in a spec whose only job is accept/reject.
+
+**Why this arrived later than the rest of the surface.** Installing
+natively keeps the grammar's lexing configuration by construction;
+serializing has to carry it deliberately, and until `@tabnas/bnf` v0.1.5
+it did not. The emitted spec dropped GBNF's empty ignore set and
+disabled matchers, so a reloaded `arithmetic.gbnf` lexed `a+b` as one
+text token and rejected `a+b=c` — it loaded cleanly and answered
+differently. Shipping that would have been worse than shipping nothing.
+
+So the test for this function is not "it emitted valid JSON". It is
+`TestCompiledSpecAgreesWithNativeInstall`: every corpus grammar
+compiled, reloaded into a **bare engine**, and graded against all 23
+accept/reject samples in both directions. `py/test_gbnf.py` does the
+same across the two shared libraries.

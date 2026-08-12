@@ -12,6 +12,7 @@ disagreement between runtimes rather than a binding bug — which is the
 property that makes a third language trustworthy at all.
 """
 
+import json
 import os
 import unittest
 
@@ -24,6 +25,7 @@ CORPUS = os.path.join(os.path.dirname(HERE), "test", "corpus")
 # ts/test/corpus.test.js — read off each grammar, graded both ways.
 ACCEPT = {
     "arithmetic": ["a+b=c\n", "x=y\n"],
+    "c": ["int f(){return x;}", "int intx(){intx = 3;}"],
     "chess": ["1. e4 e5\n2. Nxe4 e5\n"],
     "english": ["Hello, world!", "a b c"],
     "japanese": ["こんにちは"],
@@ -34,6 +36,7 @@ ACCEPT = {
 
 REJECT = {
     "arithmetic": ["a=b", "a=b+c\n"],
+    "c": ["int x=1;\n", "int x = 1;\n"],
     "chess": ["1. e4\n"],
     "english": ["hello world\n", "Hello world.\n"],
     "japanese": ["hello"],
@@ -45,6 +48,41 @@ REJECT = {
 
 def grammar(name):
     return gbnf.Grammar.from_file(os.path.join(CORPUS, name + ".gbnf"))
+
+
+def compile_corpus(name, **kw):
+    with open(os.path.join(CORPUS, name + ".gbnf"), "rb") as f:
+        return gbnf.compile_spec(f.read(), **kw)
+
+
+def import_engine_binding(case):
+    """Import tabnas, the ENGINE's Python binding, from a sibling
+    tabnas/parser checkout.
+
+    Set ``TABNAS_PY`` to point at it directly when the repos are not
+    laid out as siblings — otherwise the cross-library test skips, and a
+    silent skip on the one test that proves two shared libraries
+    interoperate is worse than no test at all.
+    """
+    import sys
+
+    repo_root = os.path.dirname(HERE)
+    candidates = [
+        os.environ.get("TABNAS_PY"),
+        os.path.join(repo_root, "..", "parser", "py"),
+        os.path.join(repo_root, "..", "..", "parser", "py"),
+    ]
+    for c in candidates:
+        if c and os.path.exists(os.path.join(c, "tabnas.py")):
+            sys.path.insert(0, c)
+            try:
+                import tabnas
+                return tabnas
+            except Exception as e:  # pragma: no cover
+                case.skipTest(f"engine binding at {c} unusable: {e}")
+    case.skipTest(
+        "engine binding not found; set TABNAS_PY to tabnas/parser's py/ "
+        "directory to run the cross-library check")
 
 
 class TestSurface(unittest.TestCase):
@@ -103,6 +141,53 @@ class TestSurface(unittest.TestCase):
             for _ in range(3):
                 self.assertTrue(g.accepts("- a\n"))
                 self.assertFalse(g.accepts("-a\n"))
+
+
+class TestCompileSpec(unittest.TestCase):
+    """compile here, validate anywhere."""
+
+    def test_emits_a_loadable_spec(self):
+        spec = compile_corpus("list")
+        self.assertIn("rule", spec)
+        self.assertIn("options", spec)
+
+    def test_as_text_round_trips(self):
+        text = compile_corpus("list", as_text=True)
+        self.assertIsInstance(text, str)
+        self.assertEqual(json.loads(text), compile_corpus("list"))
+
+    def test_a_broken_grammar_raises_and_yields_no_spec(self):
+        for src in ("root ::= [", "root ::= nosuchrule", ""):
+            with self.assertRaises(gbnf.GbnfError):
+                gbnf.compile_spec(src)
+
+    def test_compiled_spec_runs_on_the_bare_engine(self):
+        """The whole point, end to end and across two libraries.
+
+        A grammar compiled by libtabnasgbnf, then loaded and run by
+        libtabnas with no GBNF front-end present — which is exactly what
+        a caller in another language would do. Needs the engine's own
+        Python binding, from the sibling tabnas/parser checkout.
+        """
+        tabnas = import_engine_binding(self)
+
+        checked = 0
+        for name in ACCEPT:
+            spec = compile_corpus(name, as_text=True)
+            with tabnas.Grammar(spec) as g:
+                for s in ACCEPT[name]:
+                    self.assertTrue(
+                        g.accepts(s),
+                        f"{name}: compiled spec rejected {s!r}, which is in "
+                        f"its language")
+                    checked += 1
+                for s in REJECT.get(name, []):
+                    self.assertFalse(
+                        g.accepts(s),
+                        f"{name}: compiled spec accepted {s!r}, which is "
+                        f"outside it")
+                    checked += 1
+        self.assertEqual(checked, 23, "expected the full 23-sample census")
 
 
 class TestCorpus(unittest.TestCase):
