@@ -367,17 +367,18 @@ never had an IR.
 
 ## What is not here yet
 
-- **Go parse-level parity, for three grammars.** The Go front-end
-  reads `.gbnf` text, runs the same validation passes, compiles the
-  whole corpus, and — since negotiated lexing landed in `parser/go`
-  v0.8.5 — grades accept/reject on five of the eight grammars.
-  `arithmetic`, `c` and `english` still cannot parse samples inside
-  their language, because relex is necessary but not sufficient: the
-  shared compiler's contested-alternative guards (FOLLOW/FOLLOW₂
-  exits, keyword-shadow guards, left factoring) are TypeScript-only in
-  `@tabnas/bnf`, so that is where the fix belongs. The gaps are
-  asserted in `go/gbnf_test.go`, not omitted. The renderer is TS-only
-  for now too, `ts/` being canonical.
+- **A Go renderer.** `renderGbnf` (IR → GBNF text) is TypeScript-only,
+  `ts/` being canonical; the Go port follows. `markClassesEager` is
+  likewise unported — inert where it does not apply, so the corpus
+  grades without it.
+
+Go **parse-level parity** used to sit on this list and no longer does,
+by way of two upstream changes rather than one. Negotiated lexing
+landed in `parser/go` v0.8.5, which was necessary but not sufficient:
+the shared compiler's contested-alternative guards (FOLLOW/FOLLOW₂
+exits, keyword-shadow guards, left factoring) followed in `bnf/go`
+v0.1.4. With both, all eight corpus grammars agree with TypeScript in
+both directions.
 
 The validator CLI and the renderer that used to be on this list are
 here now: `gbnf-check`

@@ -8,26 +8,44 @@
 //
 //	GBNF text --ParseGbnf--> bnf.Grammar --bnf.EmitGrammarSpec--> GrammarSpec
 //
+// The grammar that reads GBNF is ITSELF a tabnas grammar —
+// `defineGbnfRules` below is a table of open/close rule alternates
+// executed by the very engine this front-end compiles for, mirroring
+// `gbnfRules` in ts/src/converter.ts. That is the point of having a
+// parser engine: the notation is declared once, in the engine's own
+// terms, rather than reimplemented by hand per runtime. An earlier
+// version of this file was hand-written recursive descent; it was
+// replaced by this, and the whole suite — including all eight corpus
+// grammars graded both ways and all 70 live-corpus grammars — passed
+// unchanged, which is the evidence that the language did not move.
+//
 // The dialect is llama.cpp's `grammars/README.md`; ts/doc/known-gaps.md
 // records where this front-end and llama.cpp's own parser diverge, and
 // applies to this runtime equally.
 //
-// A DELIBERATE DIVERGENCE FROM THE TS FRONT-END, stated here rather than
-// left to be found: the TypeScript parser expresses GBNF as a tabnas
-// rule table and parses it with the engine. This one is hand-written
-// recursive descent. The IR is the contract, and both implementations
-// answer to the same accept/reject behaviour — but the mechanisms
-// differ, so a defect in one will not automatically show up in the
-// other. The same note applies to the EBNF Go port.
+// TWO GO-SPECIFIC DEPARTURES from the TS table, both forced by the
+// language rather than chosen:
+//
+//   - Accumulating nodes are POINTERS to slices. TS pushes into a shared
+//     array because JS arrays are references; a Go `append` may
+//     reallocate, so a child appending to a value-copy of its parent's
+//     slice would silently drop elements. `*[]T` restores the semantics
+//     the rule table assumes.
+//   - A terminal decoder cannot throw. Actions have no error return, so
+//     a decode failure is recorded on per-parse state reached through
+//     ctx.Meta and re-raised by ParseGbnf, which mirrors what the TS
+//     engine does by letting the exception propagate.
 package gbnf
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	bnf "github.com/tabnas/bnf/go"
+	tabnas "github.com/tabnas/parser/go"
 )
 
 // GBNF's escape vocabulary, exactly as llama.cpp defines it.
@@ -38,76 +56,88 @@ var simpleEscapes = map[byte]rune{
 
 var hexEscapes = map[byte]int{'x': 2, 'u': 4, 'U': 8}
 
-type parser struct {
-	src  string
-	i    int
-	line int
-	col  int
-}
+// ---- Token vocabulary ----------------------------------------------
+//
+// Every terminal whose body is free-form — strings, character classes,
+// repetition braces, tokenizer terminals, rule names — is lexed WHOLE by
+// one anchored regex flagged eager, which opts the matcher out of the
+// lexer's rule-position gate. GBNF's terminals are unambiguous by their
+// first character (`"` `[` `{` `<` `!` and word chars are each claimed by
+// exactly one matcher), so tokenisation does not need to know what the
+// parser expects.
 
-func newParser(src string) *parser {
-	return &parser{src: src, line: 1, col: 1}
-}
+// Whitespace exactly as llama.cpp's parse_space defines it — NOT a wider
+// Unicode notion, which would accept grammars llama.cpp rejects.
+const spClass = `[ \t\r\n]`
 
-func (p *parser) eof() bool { return p.i >= len(p.src) }
+// `{m}` / `{m,}` / `{m,n}`, with llama.cpp-legal spacing throughout. The
+// non-capturing form is for the run matcher, which only needs the extent;
+// the capturing form is for applyPostfix, which needs the counts.
+const repNC = `\{` + spClass + `*(?:[0-9]+)` + spClass +
+	`*(?:,` + spClass + `*(?:[0-9]*)` + spClass + `*)?\}`
 
-func (p *parser) peek() byte {
-	if p.eof() {
-		return 0
+const repCap = `\{` + spClass + `*([0-9]+)` + spClass +
+	`*(?:,` + spClass + `*([0-9]*)` + spClass + `*)?\}`
+
+var (
+	reGS  = regexp.MustCompile(`^"(?:\\[\s\S]|[^"\\])*"`)
+	reCC  = regexp.MustCompile(`^\[(?:\\[\s\S]|[^\]\\])*\]`)
+	reTOK = regexp.MustCompile(`^!?<(?:\\[\s\S]|[^>\\])*>`)
+	reNM  = regexp.MustCompile(`^[A-Za-z0-9_-]+`)
+	// A RUN of postfix operators, lexed as one token so `elem` stays a
+	// two-alternate rule rather than a loop: a close-state loop needs a
+	// push or replace on every iteration, and there is no child rule to
+	// push for a `*`. Chaining (`x*?`) moves into applyPostfix.
+	rePOST = regexp.MustCompile(`^(?:[*+?]|` + repNC + `)(?:` + spClass +
+		`*(?:[*+?]|` + repNC + `))*`)
+	// The individual operators within such a run, left to right.
+	reOP = regexp.MustCompile(`[*+?]|` + repCap)
+)
+
+// ---- Per-parse state ------------------------------------------------
+
+const metaKey = "gbnf.state"
+
+// gbnfState carries the first decoder failure out of a rule action.
+// Per-parse (reached via ctx.Meta) rather than package-level, so
+// concurrent ParseGbnf calls cannot see each other's errors.
+type gbnfState struct{ err error }
+
+func stateOf(ctx *tabnas.Context) *gbnfState {
+	if ctx == nil || ctx.Meta == nil {
+		return nil
 	}
-	return p.src[p.i]
+	st, _ := ctx.Meta[metaKey].(*gbnfState)
+	return st
 }
 
-func (p *parser) advance(n int) {
-	for k := 0; k < n && !p.eof(); k++ {
-		if p.src[p.i] == '\n' {
-			p.line++
-			p.col = 1
-		} else {
-			p.col++
-		}
-		p.i++
-	}
-}
-
-func (p *parser) errf(format string, args ...any) *ParseError {
-	return &ParseError{
-		Message: fmt.Sprintf("gbnf: "+format, args...),
-		Line:    p.line,
-		Column:  p.col,
-	}
-}
-
-// skipSpace consumes whitespace and `#` comments. Whitespace is exactly
-// what llama.cpp's parse_space takes — space, tab, CR, LF — and NOT a
-// wider Unicode notion, so this front-end cannot accept a grammar
-// llama.cpp rejects.
-func (p *parser) skipSpace() {
-	for !p.eof() {
-		c := p.peek()
-		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
-			p.advance(1)
-			continue
-		}
-		if c == '#' {
-			for !p.eof() && p.peek() != '\n' {
-				p.advance(1)
-			}
-			continue
-		}
+// failAt records a decode failure, keeping the FIRST one: later actions
+// still run (the engine does not know to stop), and the earliest error is
+// the one that explains the grammar.
+func failAt(ctx *tabnas.Context, tok *tabnas.Token, format string, args ...any) {
+	st := stateOf(ctx)
+	if st == nil || st.err != nil {
 		return
 	}
+	pe := &ParseError{Message: fmt.Sprintf("gbnf: "+format, args...)}
+	if tok != nil {
+		pe.Line = tok.RI
+		pe.Column = tok.CI
+	}
+	st.err = pe
 }
+
+// ---- Terminal decoding ----------------------------------------------
 
 // readChar reads one character — plain or escaped — starting at i within
 // `whole`, returning the code point and the index just past it.
-func (p *parser) readChar(whole string, i int) (rune, int, error) {
+func readChar(whole string, i int) (rune, int, error) {
 	if whole[i] != '\\' {
 		r, size := utf8.DecodeRuneInString(whole[i:])
 		return r, i + size, nil
 	}
 	if i+1 >= len(whole) {
-		return 0, 0, p.errf("trailing backslash in terminal %s", whole)
+		return 0, 0, fmt.Errorf("trailing backslash in terminal %s", whole)
 	}
 	mark := whole[i+1]
 	if r, ok := simpleEscapes[mark]; ok {
@@ -120,19 +150,19 @@ func (p *parser) readChar(whole string, i int) (rune, int, error) {
 		}
 		hex := whole[i+2 : end]
 		if len(hex) < digits || !allHex(hex) {
-			return 0, 0, p.errf(
+			return 0, 0, fmt.Errorf(
 				"escape '\\%c' in terminal %s needs %d hex digits, found '%s'",
 				mark, whole, digits, hex)
 		}
 		n, _ := strconv.ParseInt(hex, 16, 64)
 		if n > 0x10FFFF {
-			return 0, 0, p.errf(
+			return 0, 0, fmt.Errorf(
 				"escape '\\%c%s' in terminal %s is %d, which is not a Unicode "+
 					"code point (the maximum is \\U0010FFFF)", mark, hex, whole, n)
 		}
 		return rune(n), i + 2 + digits, nil
 	}
-	return 0, 0, p.errf(
+	return 0, 0, fmt.Errorf(
 		"unknown escape '\\%c' in terminal %s. GBNF escapes are "+
 			`\t \r \n \\ \" \[ \] \xXX \uXXXX \UXXXXXXXX`, mark, whole)
 }
@@ -156,11 +186,11 @@ func classEscape(cp rune) string {
 }
 
 // decodeString turns a raw `"…"` literal into the string it denotes.
-func (p *parser) decodeString(raw string) (string, error) {
+func decodeString(raw string) (string, error) {
 	body := raw[1 : len(raw)-1]
 	var b strings.Builder
 	for i := 0; i < len(body); {
-		cp, next, err := p.readChar(raw, i+1)
+		cp, next, err := readChar(raw, i+1)
 		if err != nil {
 			return "", err
 		}
@@ -170,9 +200,10 @@ func (p *parser) decodeString(raw string) (string, error) {
 	return b.String(), nil
 }
 
-// decodeCharClass lowers `[a-z]`, `[^\n]`, `[-+*/]` onto a regex
-// element.
-func (p *parser) decodeCharClass(raw string) (*bnf.Element, error) {
+// decodeCharClass lowers `[a-z]`, `[^\n]`, `[-+*/]` onto a regex element.
+// The class is re-emitted rather than passed through: GBNF and RE2 agree
+// on `[`, `]`, `^` and `-` and on nothing else.
+func decodeCharClass(raw string) (*bnf.Element, error) {
 	i := 1
 	end := len(raw) - 1
 	negated := false
@@ -184,7 +215,7 @@ func (p *parser) decodeCharClass(raw string) (*bnf.Element, error) {
 	var parts []string
 	astral := false
 	for i < end {
-		lo, next, err := p.readChar(raw, i)
+		lo, next, err := readChar(raw, i)
 		if err != nil {
 			return nil, err
 		}
@@ -194,13 +225,13 @@ func (p *parser) decodeCharClass(raw string) (*bnf.Element, error) {
 		// the same way, which is what makes `[-+*/]` in its own
 		// arithmetic.gbnf a four-member class rather than a syntax error.
 		if i < end && raw[i] == '-' && i+1 < end {
-			hi, next2, err := p.readChar(raw, i+1)
+			hi, next2, err := readChar(raw, i+1)
 			if err != nil {
 				return nil, err
 			}
 			i = next2
 			if hi < lo {
-				return nil, p.errf(
+				return nil, fmt.Errorf(
 					"character class %s has a descending range (U+%04X to U+%04X)",
 					raw, lo, hi)
 			}
@@ -217,7 +248,7 @@ func (p *parser) decodeCharClass(raw string) (*bnf.Element, error) {
 	}
 
 	if len(parts) == 0 {
-		return nil, p.errf("empty character class %s matches nothing", raw)
+		return nil, fmt.Errorf("empty character class %s matches nothing", raw)
 	}
 
 	neg := ""
@@ -238,494 +269,465 @@ func (p *parser) decodeCharClass(raw string) (*bnf.Element, error) {
 	}, nil
 }
 
-// ---- Recursive descent ---------------------------------------------
+// ---- Repetition ------------------------------------------------------
 
-func isNameByte(c byte) bool {
-	// llama.cpp's is_word_char is [A-Za-z0-9_-], so a name may start with
-	// a digit or a dash — japanese.gbnf uses `jp-char`.
-	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' ||
-		c >= '0' && c <= '9' || c == '_' || c == '-'
-}
-
-func (p *parser) parseAtom() (*bnf.Element, error) {
-	p.skipSpace()
-	if p.eof() {
-		return nil, p.errf("expected an expression")
-	}
-	switch c := p.peek(); {
-	case c == '"':
-		start := p.i
-		p.advance(1)
-		for !p.eof() {
-			if p.peek() == '\\' {
-				p.advance(2)
-				continue
-			}
-			if p.peek() == '"' {
-				break
-			}
-			p.advance(1)
-		}
-		if p.eof() {
-			return nil, p.errf("unterminated string literal")
-		}
-		p.advance(1)
-		raw := p.src[start:p.i]
-		lit, err := p.decodeString(raw)
-		if err != nil {
-			return nil, err
-		}
-		if lit == "" {
-			// `""` denotes zero characters, so it contributes no element.
-			return nil, nil
-		}
-		// GBNF literals are case-SENSITIVE — the opposite of RFC 5234.
-		return &bnf.Element{
-			Kind: bnf.KindTerm, Literal: lit,
-			CaseSensitive: true, HasCaseSens: true,
-		}, nil
-
-	case c == '[':
-		start := p.i
-		p.advance(1)
-		for !p.eof() {
-			if p.peek() == '\\' {
-				p.advance(2)
-				continue
-			}
-			if p.peek() == ']' {
-				break
-			}
-			p.advance(1)
-		}
-		if p.eof() {
-			return nil, p.errf("unterminated character class")
-		}
-		p.advance(1)
-		return p.decodeCharClass(p.src[start:p.i])
-
-	case c == '.':
-		p.advance(1)
-		// LLAMA_GRETYPE_CHAR_ANY: any single character, newlines
-		// included. `[\s\S]` says that without needing the `s` flag
-		// (which RE2 spells differently); `u` makes "one character" mean
-		// one code point rather than one UTF-16 unit.
-		return &bnf.Element{
-			Kind: bnf.KindRegex, Pattern: `[\s\S]`, Flags: "u",
-		}, nil
-
-	case c == '(':
-		p.advance(1)
-		alts, err := p.parseAlts()
-		if err != nil {
-			return nil, err
-		}
-		p.skipSpace()
-		if p.peek() != ')' {
-			return nil, p.errf("unclosed group '('")
-		}
-		p.advance(1)
-		return &bnf.Element{Kind: bnf.KindGroup, Alts: alts}, nil
-
-	case c == '<' || c == '!':
-		// Tokenizer-token terminals: `<think>`, `!</think>`, `<[1000]>`.
-		// Parsed so a grammar containing one is not a *syntax* error, then
-		// refused by name — see rejectTokenTerminals.
-		start := p.i
-		if c == '!' {
-			p.advance(1)
-		}
-		if p.peek() != '<' {
-			return nil, p.errf("unexpected %q", string(c))
-		}
-		for !p.eof() && p.peek() != '>' {
-			p.advance(1)
-		}
-		if p.eof() {
-			return nil, p.errf("unterminated tokenizer-token terminal")
-		}
-		p.advance(1)
-		return &bnf.Element{Kind: bnf.KindProse, Text: p.src[start:p.i]}, nil
-
-	default:
-		start := p.i
-		for !p.eof() && isNameByte(p.peek()) {
-			p.advance(1)
-		}
-		if p.i == start {
-			return nil, p.errf("unexpected %q", string(c))
-		}
-		return &bnf.Element{Kind: bnf.KindRef, Name: p.src[start:p.i]}, nil
-	}
-}
-
-// parsePostfix applies a run of postfix operators left to right, so
-// `x*?` is `(x*)?` — the same order llama.cpp's sequence loop uses.
-func (p *parser) parsePostfix(el *bnf.Element) (*bnf.Element, error) {
-	for {
-		if p.eof() {
-			return el, nil
-		}
-		switch p.peek() {
+// applyPostfix applies a run of postfix operators left to right, so `x*?`
+// is `(x*)?` — the order llama.cpp's own sequence loop applies them in.
+func applyPostfix(item *bnf.Element, src string) (*bnf.Element, error) {
+	out := item
+	for _, m := range reOP.FindAllStringSubmatch(src, -1) {
+		switch m[0][0] {
 		case '*':
-			p.advance(1)
-			el = &bnf.Element{Kind: bnf.KindStar, Inner: el}
+			out = &bnf.Element{Kind: bnf.KindStar, Inner: out}
 		case '+':
-			p.advance(1)
-			el = &bnf.Element{Kind: bnf.KindPlus, Inner: el}
+			out = &bnf.Element{Kind: bnf.KindPlus, Inner: out}
 		case '?':
-			p.advance(1)
-			el = &bnf.Element{Kind: bnf.KindOpt, Inner: el}
-		case '{':
-			min, max, err := p.parseRepBraces()
+			out = &bnf.Element{Kind: bnf.KindOpt, Inner: out}
+		default:
+			min, _ := strconv.Atoi(m[1])
+			max := min
+			// `{m}` (no comma) is exactly m; `{m,}` is m or more; `{m,n}`
+			// is the closed range. FindAllStringSubmatch gives "" for a
+			// group that did not participate, so the comma is detected by
+			// looking at the source rather than at m[2].
+			if strings.Contains(m[0], ",") {
+				if m[2] == "" {
+					max = bnf.MaxInfinity
+				} else {
+					max, _ = strconv.Atoi(m[2])
+				}
+			}
+			el, err := repeat(out, min, max, m[0])
 			if err != nil {
 				return nil, err
 			}
-			el = &bnf.Element{Kind: bnf.KindRep, Min: min, Max: max, Inner: el}
-		default:
-			return el, nil
+			out = el
 		}
 	}
+	return out, nil
 }
 
-// parseRepBraces reads `{m}`, `{m,}` or `{m,n}`. Whitespace inside is
-// llama.cpp-legal (parse_space runs after each operator) but ONLY the
-// ASCII set it defines.
-func (p *parser) parseRepBraces() (int, int, error) {
-	p.advance(1) // `{`
-	readNum := func() (int, bool) {
-		p.skipRepSpace()
-		start := p.i
-		for !p.eof() && p.peek() >= '0' && p.peek() <= '9' {
-			p.advance(1)
-		}
-		if p.i == start {
-			return 0, false
-		}
-		n, _ := strconv.Atoi(p.src[start:p.i])
-		return n, true
+// repeat lowers a repetition count onto the IR. star/plus/opt are the
+// shapes the shared compiler desugars into paired helper rules; rep
+// covers everything else. The degenerate braces collapse exactly as the
+// TS front-end collapses them, so both runtimes emit the same IR.
+func repeat(inner *bnf.Element, min, max int, src string) (*bnf.Element, error) {
+	if max < min {
+		return nil, fmt.Errorf(
+			"repetition %s has an upper bound below its lower bound", src)
 	}
-	lo, ok := readNum()
-	if !ok {
-		return 0, 0, p.errf("repetition '{' needs a count")
+	switch {
+	case min == 1 && max == 1:
+		return inner, nil
+	case min == 0 && max == bnf.MaxInfinity:
+		return &bnf.Element{Kind: bnf.KindStar, Inner: inner}, nil
+	case min == 1 && max == bnf.MaxInfinity:
+		return &bnf.Element{Kind: bnf.KindPlus, Inner: inner}, nil
+	case min == 0 && max == 1:
+		return &bnf.Element{Kind: bnf.KindOpt, Inner: inner}, nil
 	}
-	p.skipRepSpace()
-	hi := lo
-	if p.peek() == ',' {
-		p.advance(1)
-		if n, ok := readNum(); ok {
-			hi = n
-		} else {
-			hi = bnf.MaxInfinity
-		}
-		p.skipRepSpace()
-	}
-	if p.peek() != '}' {
-		return 0, 0, p.errf("unclosed repetition '{'")
-	}
-	p.advance(1)
-	return lo, hi, nil
+	return &bnf.Element{Kind: bnf.KindRep, Min: min, Max: max, Inner: inner}, nil
 }
 
-// skipRepSpace is parse_space, exactly: space, tab, CR, LF. NOT a wider
-// Unicode notion of whitespace, which would make this front-end accept
-// grammars llama.cpp rejects.
-func (p *parser) skipRepSpace() {
-	for !p.eof() {
-		switch p.peek() {
-		case ' ', '\t', '\r', '\n':
-			p.advance(1)
-		default:
-			return
-		}
-	}
-}
-
-func (p *parser) atSeqEnd() bool {
-	if p.eof() {
-		return true
-	}
-	switch p.peek() {
-	case '|', ')':
-		return true
-	}
-	// A new rule starts here: NAME followed by `::=`.
-	save := *p
-	defer func() { *p = save }()
-	start := p.i
-	for !p.eof() && isNameByte(p.peek()) {
-		p.advance(1)
-	}
-	if p.i == start {
-		return false
-	}
-	p.skipSpace()
-	return strings.HasPrefix(p.src[p.i:], "::=")
-}
-
-func (p *parser) parseSeq() (bnf.Sequence, error) {
-	// An EMPTY sequence is legal GBNF — llama.cpp's own json.gbnf writes
-	// optional whitespace as `ws ::= | " " | "\n"`. So unlike the EBNF
-	// front-end, this one must NOT refuse it.
-	seq := bnf.Sequence{}
-	for {
-		p.skipSpace()
-		if p.atSeqEnd() {
-			return seq, nil
-		}
-		el, err := p.parseAtom()
-		if err != nil {
-			return nil, err
-		}
-		if el == nil {
-			// `""` contributed nothing; postfix on it is meaningless too.
-			continue
-		}
-		el, err = p.parsePostfix(el)
-		if err != nil {
-			return nil, err
-		}
-		seq = append(seq, el)
-	}
-}
-
-func (p *parser) parseAlts() ([]bnf.Sequence, error) {
-	var alts []bnf.Sequence
-	for {
-		seq, err := p.parseSeq()
-		if err != nil {
-			return nil, err
-		}
-		alts = append(alts, seq)
-		p.skipSpace()
-		if p.peek() != '|' {
-			return alts, nil
-		}
-		p.advance(1)
-	}
-}
-
-// ---- Grammar-level parse and validation ----------------------------
-
-// ParseGbnf reads GBNF source into the shared grammar IR.
-func ParseGbnf(src string) (*bnf.Grammar, error) {
-	p := newParser(src)
-	var prods []*bnf.Production
-
-	for {
-		p.skipSpace()
-		if p.eof() {
-			break
-		}
-		start := p.i
-		for !p.eof() && isNameByte(p.peek()) {
-			p.advance(1)
-		}
-		if p.i == start {
-			return nil, p.errf("expected a rule name")
-		}
-		name := p.src[start:p.i]
-		p.skipSpace()
-		if !strings.HasPrefix(p.src[p.i:], "::=") {
-			return nil, p.errf("expected '::=' after rule name '%s'", name)
-		}
-		p.advance(3)
-		alts, err := p.parseAlts()
-		if err != nil {
-			return nil, err
-		}
-		prods = append(prods, &bnf.Production{Name: name, Alts: alts})
-	}
-
-	if len(prods) == 0 {
-		return nil, &ParseError{Message: "gbnf: grammar defines no rules"}
-	}
-	prods = dedupeProductions(prods)
-	if err := rejectTokenTerminals(prods); err != nil {
-		return nil, err
-	}
-	if err := requireRoot(prods); err != nil {
-		return nil, err
-	}
-	if err := requireDefinedRefs(prods); err != nil {
-		return nil, err
-	}
-	return &bnf.Grammar{Productions: prods}, nil
-}
-
-// GBNF has no `=/`; llama.cpp stores rules in a map, so a second
-// definition REPLACES the first rather than extending it.
-func dedupeProductions(prods []*bnf.Production) []*bnf.Production {
-	last := map[string]*bnf.Production{}
-	var order []string
-	for _, p := range prods {
-		if _, seen := last[p.Name]; !seen {
-			order = append(order, p.Name)
-		}
-		last[p.Name] = p
-	}
-	out := make([]*bnf.Production, 0, len(order))
-	for _, n := range order {
-		out = append(out, last[n])
-	}
-	return out
-}
-
-// Tokenizer-token terminals match entries of a sampler's VOCABULARY, not
-// characters. Which text they cover is decided by the model's tokenizer,
-// so the same grammar means different things on different models, and a
-// text parser has no tokenizer at all. Both available approximations
-// silently change the accepted language, which is the one failure mode
-// an offline validator must not have — so they are refused by name.
-func rejectTokenTerminals(prods []*bnf.Production) error {
-	var walk func(el *bnf.Element, rule string) error
-	walk = func(el *bnf.Element, rule string) error {
-		switch el.Kind {
-		case bnf.KindProse:
-			return &CompileError{Message: fmt.Sprintf(
-				"gbnf: rule '%s' uses the tokenizer-token terminal '%s'. These "+
-					"match a sampler's vocabulary entries rather than characters, "+
-					"so they have no meaning for a text parser and are not "+
-					"compiled.", rule, el.Text)}
-		case bnf.KindGroup:
-			for _, a := range el.Alts {
-				for _, e := range a {
-					if err := walk(e, rule); err != nil {
-						return err
-					}
-				}
-			}
-		case bnf.KindOpt, bnf.KindStar, bnf.KindPlus, bnf.KindRep:
-			return walk(el.Inner, rule)
-		}
-		return nil
-	}
-	for _, p := range prods {
-		for _, a := range p.Alts {
-			for _, e := range a {
-				if err := walk(e, p.Name); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
-}
-
-// GBNF mandates a rule named `root`; llama.cpp starts there.
-func requireRoot(prods []*bnf.Production) error {
-	for _, p := range prods {
-		if p.Name == "root" {
-			return nil
-		}
-	}
-	return &ParseError{Message: "gbnf: grammar has no 'root' rule; GBNF " +
-		"starts at 'root', so one must be defined"}
-}
-
-func requireDefinedRefs(prods []*bnf.Production) error {
-	defined := map[string]bool{}
-	for _, p := range prods {
-		defined[p.Name] = true
-	}
-	var walk func(el *bnf.Element, rule string) error
-	walk = func(el *bnf.Element, rule string) error {
-		switch el.Kind {
-		case bnf.KindRef:
-			if !defined[el.Name] {
-				return &CompileError{Message: fmt.Sprintf(
-					"gbnf: rule '%s' references unknown rule '%s'", rule, el.Name)}
-			}
-		case bnf.KindGroup:
-			for _, a := range el.Alts {
-				for _, e := range a {
-					if err := walk(e, rule); err != nil {
-						return err
-					}
-				}
-			}
-		case bnf.KindOpt, bnf.KindStar, bnf.KindPlus, bnf.KindRep:
-			return walk(el.Inner, rule)
-		}
-		return nil
-	}
-	for _, p := range prods {
-		for _, a := range p.Alts {
-			for _, e := range a {
-				if err := walk(e, p.Name); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
-}
-
-// derivesEmpty reports whether the start rule can derive the empty
-// string. Walked over the parsed IR — before the compiler desugars it —
-// because the IR still says star/opt/rep outright, where the emitted
-// spec has already turned them into mutually-referring helpers.
+// ---- The meta-grammar ------------------------------------------------
 //
-// The `seen` set makes a recursive rule terminate; a rule already on the
-// stack contributes nothing new, so treating it as non-nullable is both
-// safe and the least-fixed-point answer.
-func derivesEmpty(g *bnf.Grammar, start string) bool {
-	byName := map[string]*bnf.Production{}
-	for _, p := range g.Productions {
-		byName[p.Name] = p
-	}
-	seen := map[string]bool{}
+//	gbnf = prod*
+//	prod = NM '::=' alts
+//	alts = seq ('|' seq)*
+//	seq  = elem*                (an EMPTY seq is legal GBNF:
+//	                             `ws ::= | " " | "\n"`)
+//	elem = atom POST?
+//	atom = NM | GS | CC | DOT | TOK | '(' alts ')'
 
-	var elEmpty func(el *bnf.Element) bool
-	var ruleEmpty func(name string) bool
+// newGbnfParser builds an instance configured to read GBNF.
+//
+// Built per call rather than cached, unlike the TS front-end's memoised
+// instance: a *Tabnas is not safe for concurrent Parse, and a package
+// singleton would make ParseGbnf unsafe to call from two goroutines.
+func newGbnfParser() *tabnas.Tabnas {
+	off := false
+	on := true
+	str := func(s string) *string { return &s }
 
-	elEmpty = func(el *bnf.Element) bool {
-		switch el.Kind {
-		case bnf.KindOpt, bnf.KindStar:
-			return true
-		case bnf.KindRep:
-			return el.Min == 0
-		case bnf.KindPlus:
-			return elEmpty(el.Inner)
-		case bnf.KindGroup:
-			for _, a := range el.Alts {
-				if seqEmpty(a, elEmpty) {
-					return true
-				}
-			}
-			return false
-		case bnf.KindRef:
-			return ruleEmpty(el.Name)
-		}
-		return false
-	}
+	tn := tabnas.Empty(tabnas.Options{
+		Rule: &tabnas.RuleOptions{Start: "gbnf"},
+		Fixed: &tabnas.FixedOptions{
+			Token: map[string]*string{
+				// Clear the JSON-oriented defaults: `{`, `}`, `[`, `]`, `:`
+				// and `,` all belong to GBNF terminals that are lexed whole
+				// by the match matchers, and must not be stolen a character
+				// at a time.
+				"#OB": nil, "#CB": nil, "#OS": nil,
+				"#CS": nil, "#CL": nil, "#CA": nil,
+				"#DEF": str("::="),
+				"#ALT": str("|"),
+				"#LP":  str("("),
+				"#RP":  str(")"),
+				"#DOT": str("."),
+			},
+		},
+		Match: &tabnas.MatchOptions{
+			Token: map[string]*regexp.Regexp{
+				"#GS": reGS, "#CC": reCC, "#POST": rePOST,
+				"#TOK": reTOK, "#NM": reNM,
+			},
+			// Eager: fire wherever the regex matches, and let the parser
+			// reject a token it did not expect. GBNF's terminals are
+			// distinguished by their first character, so tokenisation is
+			// independent of parse state.
+			TokenEager: map[string]bool{
+				"#GS": true, "#CC": true, "#POST": true,
+				"#TOK": true, "#NM": true,
+			},
+			// Longest-first where two could overlap: a `{` run must be
+			// claimed by #POST, never by a bare name.
+			TokenOrder: []string{"#GS", "#CC", "#TOK", "#POST", "#NM"},
+		},
+		// Nothing below is GBNF syntax: numbers, quoted strings, barewords
+		// and keyword values are all covered by the match tokens above.
+		Number: &tabnas.NumberOptions{Lex: &off},
+		String: &tabnas.StringOptions{Lex: &off},
+		Text:   &tabnas.TextOptions{Lex: &off},
+		Value:  &tabnas.ValueOptions{Lex: &off},
+		Comment: &tabnas.CommentOptions{
+			// GBNF comments run from `#` to end of line. A `#` inside a
+			// string or a character class is never seen here: both are
+			// match tokens, and the match matcher runs first.
+			Def: map[string]*tabnas.CommentDef{
+				"hash":  {Line: true, Start: "#", Lex: &on, EatLine: &off},
+				"slash": nil,
+				"multi": nil,
+			},
+		},
+	})
 
-	ruleEmpty = func(name string) bool {
-		if seen[name] {
-			return false
-		}
-		seen[name] = true
-		defer delete(seen, name)
-		p := byName[name]
-		if p == nil {
-			return false
-		}
-		for _, a := range p.Alts {
-			if seqEmpty(a, elEmpty) {
-				return true
-			}
-		}
-		return false
-	}
-
-	return ruleEmpty(start)
+	defineGbnfRules(tn)
+	return tn
 }
 
-func seqEmpty(a bnf.Sequence, elEmpty func(*bnf.Element) bool) bool {
-	for _, el := range a {
-		if !elEmpty(el) {
-			return false
+// alt is one alternate, written as a struct literal so the rule table
+// below reads as a table — the nearest Go gets to the object literals
+// ts/src/converter.ts uses. Zero fields are simply absent, exactly as an
+// omitted key is in TS.
+type alt struct {
+	S    string           // per-position token names, e.g. "#NM #DEF"
+	P    string           // push rule
+	R    string           // replace rule
+	B    int              // backtrack this many tokens
+	G    string           // group tag
+	Act  tabnas.AltAction // match action
+	Cond tabnas.AltCond   // guard
+}
+
+// defineGbnfRules installs the meta-grammar:
+//
+//	gbnf = prod*
+//	prod = NM '::=' alts
+//	alts = seq ('|' seq)*
+//	seq  = elem*                (an EMPTY seq is legal GBNF:
+//	                             `ws ::= | " " | "\n"`)
+//	elem = atom POST?
+//	atom = NM | GS | CC | DOT | TOK | '(' alts ')'
+func defineGbnfRules(tn *tabnas.Tabnas) {
+	// Token names resolve against THIS instance's tin allocation.
+	spec := func(a alt) *tabnas.AltSpec {
+		out := &tabnas.AltSpec{P: a.P, R: a.R, B: a.B, G: a.G, A: a.Act, C: a.Cond}
+		for _, n := range strings.Fields(a.S) {
+			out.S = append(out.S, []tabnas.Tin{tn.Token(n)})
 		}
+		return out
 	}
-	return true
+	alts := func(as ...alt) []*tabnas.AltSpec {
+		out := make([]*tabnas.AltSpec, len(as))
+		for i, a := range as {
+			out[i] = spec(a)
+		}
+		return out
+	}
+	rule := func(name string, define func(rs *tabnas.RuleSpec)) {
+		tn.Rule(name, func(rs *tabnas.RuleSpec, p *tabnas.Parser) { define(rs) })
+	}
+
+	// Top level: accumulates productions into r.Node.
+	rule("gbnf", func(rs *tabnas.RuleSpec) {
+		rs.AddBO(func(r *tabnas.Rule, ctx *tabnas.Context) {
+			r.Node = &[]*bnf.Production{}
+		})
+		rs.AddOpen(alts(
+			alt{S: "#ZZ", G: "empty"},
+			alt{P: "prod"},
+		)...)
+		rs.AddClose(alts(alt{S: "#ZZ"})...)
+	})
+
+	// One production per invocation; tail-recurses for the next. Inherits
+	// its parent's node (the productions slice) and appends in bc once its
+	// `alts` child has returned.
+	rule("prod", func(rs *tabnas.RuleSpec) {
+		rs.AddBO(func(r *tabnas.Rule, ctx *tabnas.Context) { ensureU(r) })
+		rs.AddOpen(alts(alt{
+			S: "#NM #DEF",
+			Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
+				r.U["name"] = r.O[0].Src
+			},
+			P: "alts",
+		})...)
+		// `NM ::=` means the next production has begun — back up 2 tokens
+		// so a fresh `prod` invocation sees them. `::=` can only ever
+		// follow a rule name at the start of a production, so this
+		// two-token lookahead is exact.
+		rs.AddClose(alts(
+			alt{S: "#NM #DEF", B: 2, R: "prod"},
+			alt{B: 1},
+		)...)
+		rs.AddBC(func(r *tabnas.Rule, ctx *tabnas.Context) {
+			as, ok := childAlts(r)
+			if !ok {
+				return
+			}
+			name, _ := r.U["name"].(string)
+			ps := r.Node.(*[]*bnf.Production)
+			*ps = append(*ps, &bnf.Production{Name: name, Alts: *as})
+		})
+	})
+
+	// A list of alternative sequences separated by `|`. Owns its own
+	// slice and appends each seq result.
+	rule("alts", func(rs *tabnas.RuleSpec) {
+		rs.AddBO(func(r *tabnas.Rule, ctx *tabnas.Context) {
+			r.Node = &[]bnf.Sequence{}
+		})
+		rs.AddOpen(alts(alt{P: "seq"})...)
+		rs.AddClose(alts(
+			alt{S: "#ALT", P: "seq"},
+			alt{B: 1},
+		)...)
+		rs.AddBC(func(r *tabnas.Rule, ctx *tabnas.Context) {
+			seq, ok := childSeq(r)
+			if !ok {
+				return
+			}
+			as := r.Node.(*[]bnf.Sequence)
+			*as = append(*as, *seq)
+		})
+	})
+
+	// A (possibly empty) sequence of elements. The boundary alternates
+	// come first and match without consuming (`B` cancels the token
+	// consumption) so the enclosing rule sees the token itself. An empty
+	// sequence is legal and meaningful: llama.cpp's own json.gbnf writes
+	// optional whitespace as `ws ::= | " " | "\n" [ \t]{0,20}`, whose
+	// first alternative matches nothing.
+	rule("seq", func(rs *tabnas.RuleSpec) {
+		rs.AddBO(func(r *tabnas.Rule, ctx *tabnas.Context) {
+			r.Node = &bnf.Sequence{}
+		})
+		bounds := []alt{
+			{S: "#NM #DEF", B: 2, G: "end"},
+			{S: "#ALT", B: 1, G: "end"},
+			{S: "#RP", B: 1, G: "end"},
+			{S: "#ZZ", B: 1, G: "end"},
+			{P: "elem"},
+		}
+		rs.AddOpen(alts(bounds...)...)
+		rs.AddClose(alts(bounds...)...)
+	})
+
+	// One element: an atom followed by an optional postfix run. The run
+	// arrives as a SINGLE #POST token, which is what makes this a
+	// two-alternate rule rather than a loop.
+	rule("elem", func(rs *tabnas.RuleSpec) {
+		push := func(r *tabnas.Rule, el *bnf.Element) {
+			seq := r.Node.(*bnf.Sequence)
+			*seq = append(*seq, el)
+		}
+		rs.AddOpen(alts(alt{P: "atom"})...)
+		rs.AddClose(alts(
+			// `r.C`, not `r.O`: tokens matched by a close-state alternate
+			// land in the rule's close-token array.
+			alt{S: "#POST", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
+				item := childElement(r)
+				if item == nil {
+					return
+				}
+				el, err := applyPostfix(item, r.C[0].Src)
+				if err != nil {
+					failAt(ctx, r.C[0], "%s", err)
+					return
+				}
+				push(r, el)
+			}},
+			alt{Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
+				if item := childElement(r); item != nil {
+					push(r, item)
+				}
+			}},
+		)...)
+	})
+
+	// The atom body. Sets its OWN r.Node so the enclosing `elem` can read
+	// it from r.Child.Node. A nil node is load-bearing: an empty string
+	// literal (`""`) contributes no element at all, and `elem` skips
+	// pushing when the atom left its node unset.
+	rule("atom", func(rs *tabnas.RuleSpec) {
+		rs.AddBO(func(r *tabnas.Rule, ctx *tabnas.Context) {
+			r.Node = nil
+			ensureU(r)
+			r.U["grouped"] = false
+		})
+		rs.AddOpen(alts(
+			alt{S: "#GS", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
+				lit, err := decodeString(r.O[0].Src)
+				if err != nil {
+					failAt(ctx, r.O[0], "%s", err)
+					return
+				}
+				// GBNF string literals are CASE-SENSITIVE — the opposite of
+				// RFC 5234's default. The flag is what makes the emitter
+				// lower this to a plain fixed token instead of a
+				// case-folding regex, so dropping it would silently accept
+				// "TRUE" for "true".
+				if lit != "" {
+					r.Node = &bnf.Element{
+						Kind: bnf.KindTerm, Literal: lit, CaseSensitive: true,
+					}
+				}
+			}},
+			alt{S: "#CC", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
+				el, err := decodeCharClass(r.O[0].Src)
+				if err != nil {
+					failAt(ctx, r.O[0], "%s", err)
+					return
+				}
+				r.Node = el
+			}},
+			// `.` is llama.cpp's LLAMA_GRETYPE_CHAR_ANY: any single
+			// character, newlines included. The u flag makes "one
+			// character" mean one code point.
+			alt{S: "#DOT", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
+				r.Node = &bnf.Element{
+					Kind: bnf.KindRegex, Pattern: `[\s\S]`, Flags: "u",
+				}
+			}},
+			// Tokenizer-token terminals parse, then are rejected by name in
+			// rejectTokenTerminals — carried on KindProse, the IR's "not
+			// compilable, keep the text for the diagnostic" element.
+			alt{S: "#TOK", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
+				r.Node = &bnf.Element{Kind: bnf.KindProse, Text: r.O[0].Src}
+			}},
+			alt{S: "#NM", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
+				r.Node = &bnf.Element{Kind: bnf.KindRef, Name: r.O[0].Src}
+			}},
+			alt{S: "#LP", P: "alts", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
+				r.U["grouped"] = true
+			}},
+		)...)
+		rs.AddClose(alts(
+			// Only a group consumes the `)`. Without the condition this
+			// alternate would eat the closing paren of the ENCLOSING group
+			// after a simple atom — `( "a" )` would lose its `)`.
+			alt{
+				S: "#RP",
+				Cond: func(r *tabnas.Rule, ctx *tabnas.Context) bool {
+					g, _ := r.U["grouped"].(bool)
+					return g
+				},
+				Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
+					as, ok := childAlts(r)
+					if !ok {
+						return
+					}
+					r.Node = &bnf.Element{Kind: bnf.KindGroup, Alts: *as}
+				},
+			},
+			// Simple atoms already set r.Node in open; pop without consuming.
+			alt{B: 1},
+		)...)
+	})
+}
+
+// ensureU makes a rule's custom-prop map writable. TS creates `r.u` for
+// every rule; Go leaves the map nil until something declares it, and an
+// action writing to a nil map panics inside the engine.
+func ensureU(r *tabnas.Rule) {
+	if r.U == nil {
+		r.U = map[string]any{}
+	}
+}
+
+// Child-node accessors. The engine leaves Child unset (or its Node nil)
+// when a rule closed without producing one, which is the normal shape for
+// an empty alternative — so a missing child is silence, not an error.
+
+func childAlts(r *tabnas.Rule) (*[]bnf.Sequence, bool) {
+	if r.Child == nil {
+		return nil, false
+	}
+	a, ok := r.Child.Node.(*[]bnf.Sequence)
+	return a, ok
+}
+
+func childSeq(r *tabnas.Rule) (*bnf.Sequence, bool) {
+	if r.Child == nil {
+		return nil, false
+	}
+	s, ok := r.Child.Node.(*bnf.Sequence)
+	return s, ok
+}
+
+func childElement(r *tabnas.Rule) *bnf.Element {
+	if r.Child == nil {
+		return nil
+	}
+	el, _ := r.Child.Node.(*bnf.Element)
+	return el
+}
+
+// ---- Grammar-level parse and validation ------------------------------
+
+// ParseGbnf parses GBNF source into the grammar IR. The returned Grammar
+// is ready for bnf.EmitGrammarSpec: `root` is present, every reference
+// resolves, and no tokenizer terminals remain.
+func ParseGbnf(src string) (*bnf.Grammar, error) {
+	tn := newGbnfParser()
+	st := &gbnfState{}
+
+	out, err := tn.ParseMeta(src, map[string]any{metaKey: st})
+
+	// A terminal decoder's own diagnostic already names the offending
+	// escape or class, and is more use than the engine's positional
+	// complaint about the token it could not place. Prefer it.
+	if st.err != nil {
+		return nil, st.err
+	}
+	if err != nil {
+		return nil, wrapParseError(err)
+	}
+
+	prods, _ := out.(*[]*bnf.Production)
+	if prods == nil || len(*prods) == 0 {
+		return nil, &ParseError{Message: "gbnf: no productions found"}
+	}
+
+	productions := dedupeProductions(*prods)
+	if err := rejectTokenTerminals(productions); err != nil {
+		return nil, err
+	}
+	if err := requireRoot(productions); err != nil {
+		return nil, err
+	}
+	if err := requireDefinedRefs(productions); err != nil {
+		return nil, err
+	}
+	return &bnf.Grammar{Productions: productions}, nil
+}
+
+// wrapParseError restamps an engine diagnostic as this front-end's, so a
+// caller sees one error vocabulary regardless of which layer failed.
+func wrapParseError(err error) error {
+	msg := err.Error()
+	if i := strings.IndexByte(msg, '\n'); i >= 0 {
+		msg = msg[:i]
+	}
+	return &ParseError{Message: "gbnf: " + msg, Cause: err}
 }
