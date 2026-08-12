@@ -1,0 +1,43 @@
+# Publishes docs/ to GitHub Pages (tabnas.github.io/gbnf).
+#
+# Needed only because the Pages source is set to "GitHub Actions" rather
+# than "Deploy from a branch" — in that mode nothing deploys until a
+# workflow uploads an artifact, which is why the site 404s with Pages
+# enabled and no build ever running.
+#
+# The site is a single static file with no build step, so this just
+# uploads docs/ as-is.
+name: pages
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'docs/**', '.github/workflows/pages.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it: a half-applied
+# Pages deploy is worse than a queued one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: docs
+      - id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
+        
