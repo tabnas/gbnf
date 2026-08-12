@@ -55,7 +55,7 @@ def compile_corpus(name, **kw):
         return gbnf.compile_spec(f.read(), **kw)
 
 
-def import_engine_binding(case):
+def import_engine_binding():
     """Import tabnas, the ENGINE's Python binding, from a sibling
     tabnas/parser checkout.
 
@@ -63,6 +63,11 @@ def import_engine_binding(case):
     laid out as siblings — otherwise the cross-library test skips, and a
     silent skip on the one test that proves two shared libraries
     interoperate is worse than no test at all.
+
+    Every path out of here either returns the module or raises: SkipTest
+    is raised directly rather than via ``case.skipTest`` so that the
+    termination is visible to a reader, and so this helper needs no
+    TestCase handed to it.
     """
     import sys
 
@@ -77,10 +82,11 @@ def import_engine_binding(case):
             sys.path.insert(0, c)
             try:
                 import tabnas
-                return tabnas
             except Exception as e:  # pragma: no cover
-                case.skipTest(f"engine binding at {c} unusable: {e}")
-    case.skipTest(
+                raise unittest.SkipTest(
+                    f"engine binding at {c} unusable: {e}") from e
+            return tabnas
+    raise unittest.SkipTest(
         "engine binding not found; set TABNAS_PY to tabnas/parser's py/ "
         "directory to run the cross-library check")
 
@@ -169,7 +175,7 @@ class TestCompileSpec(unittest.TestCase):
         a caller in another language would do. Needs the engine's own
         Python binding, from the sibling tabnas/parser checkout.
         """
-        tabnas = import_engine_binding(self)
+        tabnas = import_engine_binding()
 
         checked = 0
         for name in ACCEPT:
