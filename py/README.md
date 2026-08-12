@@ -66,8 +66,8 @@ model's output when the grammar was at fault.
 `load()` looks for, in order:
 
 1. `$GBNF_LIB`
-2. `libgbnf.so` / `.dylib` / `.dll` beside this module
-3. `../go/clib/dist/libgbnf-<goos>-<arch><ext>`
+2. `libtabnasgbnf.so` / `.dylib` / `.dll` beside this module
+3. `../go/clib/dist/libtabnasgbnf-<goos>-<arch><ext>`
 
 Or pass `path=` to `gbnf.Grammar(...)` / `gbnf.load(...)`.
 

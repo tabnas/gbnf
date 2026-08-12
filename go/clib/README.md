@@ -1,4 +1,4 @@
-# libgbnf — the C ABI
+# libtabnasgbnf — the C ABI
 
 A llama.cpp GBNF validator as a C shared library, so languages with no
 tabnas port can ask the one question GBNF users keep needing answered:

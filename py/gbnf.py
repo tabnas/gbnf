@@ -90,9 +90,9 @@ def _default_lib_path() -> str:
         platform.system(), "linux")
     here = os.path.dirname(os.path.abspath(__file__))
     for candidate in (
-        os.path.join(here, f"libgbnf{ext}"),
+        os.path.join(here, f"libtabnasgbnf{ext}"),
         os.path.join(here, "..", "go", "clib", "dist",
-                     f"libgbnf-{goos}-{arch}{ext}"),
+                     f"libtabnasgbnf-{goos}-{arch}{ext}"),
     ):
         if os.path.exists(candidate):
             return candidate

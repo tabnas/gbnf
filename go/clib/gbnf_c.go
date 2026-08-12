@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Richard Rodger and other contributors, MIT License
 
-// Package main builds the C-ABI shared library: libgbnf.
+// Package main builds the C-ABI shared library: libtabnasgbnf.
 //
-//	go build -buildmode=c-shared -o libgbnf.so ./clib
+//	go build -buildmode=c-shared -o libtabnasgbnf.so ./clib
 //
 // It exists so that languages with no tabnas port can validate text
 // against a llama.cpp GBNF grammar. Python via ctypes is the motivating
