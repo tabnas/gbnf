@@ -85,6 +85,19 @@ func gbnf_grammar(src *C.char, srcLen C.int) *C.char {
 	return C.CString(loadGrammar(text))
 }
 
+// gbnf_compile turns GBNF source into a serialized recognition spec —
+// pure data that libtabnas can load and run without this library
+// present. Compile once here; validate anywhere.
+//
+//export gbnf_compile
+func gbnf_compile(src *C.char, srcLen C.int) *C.char {
+	text, ok := goBytes(src, srcLen)
+	if !ok {
+		return C.CString(failDoc("usage", "grammar pointer or length is invalid"))
+	}
+	return C.CString(compileSpec(text))
+}
+
 // gbnf_parse checks one input against a compiled grammar.
 //
 //export gbnf_parse

@@ -49,6 +49,30 @@ accepts is exactly what every other tabnas runtime accepts — the test
 suite grades the same corpus grammars and the same samples as the Go and
 TypeScript suites, in both directions.
 
+## Compile once, validate anywhere
+
+`compile_spec` turns GBNF into a serialized recognition spec — pure data
+any tabnas runtime can run **without this front-end present**:
+
+```python
+spec = gbnf.compile_spec(open("json.gbnf").read(), as_text=True)
+# ship `spec` to a service that has libtabnas but no GBNF front-end;
+# it can now validate against the grammar
+```
+
+Compile at build time, validate at run time somewhere else entirely.
+Prefer `as_text=True` for storing or shipping: a regex travels as an
+`@/src/flags` sentinel the engine decodes on load, and a naive re-encode
+can lose it.
+
+This is a strictly separate question from `Grammar`, which compiles
+natively in-process. Serializing has to carry the grammar's lexing
+configuration deliberately, and before `@tabnas/bnf` v0.1.5 it did not —
+the reloaded grammar accepted a different language than the one you
+wrote. The test suite grades the compiled spec against the corpus in
+both directions, through the engine's own library, for exactly that
+reason.
+
 ## Three outcomes, not two
 
 | situation | result |

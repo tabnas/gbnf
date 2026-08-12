@@ -57,7 +57,8 @@ import platform
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-__all__ = ["Grammar", "Verdict", "GbnfError", "load", "version"]
+__all__ = ["Grammar", "Verdict", "GbnfError", "compile_spec", "load",
+           "version"]
 
 
 class GbnfError(Exception):
@@ -128,6 +129,8 @@ def load(path: Optional[str] = None):
     lib.gbnf_version.argtypes = []
     lib.gbnf_grammar.restype = ctypes.c_void_p
     lib.gbnf_grammar.argtypes = [ctypes.c_char_p, ctypes.c_int]
+    lib.gbnf_compile.restype = ctypes.c_void_p
+    lib.gbnf_compile.argtypes = [ctypes.c_char_p, ctypes.c_int]
     lib.gbnf_parse.restype = ctypes.c_void_p
     lib.gbnf_parse.argtypes = [ctypes.c_longlong, ctypes.c_char_p,
                                ctypes.c_int]
@@ -155,6 +158,46 @@ def version() -> dict:
     lib = load()
     res = _call(lib, lib.gbnf_version())
     return {"gbnf": res.get("version"), "engine": res.get("engine")}
+
+
+def compile_spec(src: Any, *, path: Optional[str] = None,
+                 as_text: bool = False):
+    """Compile GBNF into a serialized recognition spec — pure data any
+    tabnas runtime can load and run WITHOUT this front-end present.
+
+    Compile once, validate anywhere::
+
+        spec = gbnf.compile_spec(open("json.gbnf").read(), as_text=True)
+        # ship `spec` to a service that has libtabnas but no GBNF
+        # front-end; it can now validate against the grammar
+
+    Returns a dict, or the spec text when ``as_text`` is set. Prefer the
+    text form for storing or shipping: a regex travels as an
+    ``@/src/flags`` sentinel the engine decodes on load, and round
+    tripping it through a naive re-encode can lose it.
+
+    Raises :class:`GbnfError` if the grammar does not compile — a failure
+    never yields a spec, so you cannot ship an empty grammar believing it
+    worked.
+
+    Note this is a strictly separate question from :class:`Grammar`,
+    which compiles natively in-process. Serializing has to carry the
+    grammar's lexing configuration deliberately; before ``@tabnas/bnf``
+    v0.1.5 it did not, and the reloaded grammar accepted a different
+    language than the one you wrote.
+    """
+    lib = load(path)
+    if isinstance(src, str):
+        src = src.encode("utf-8")
+    if not isinstance(src, (bytes, bytearray)):
+        raise TypeError("grammar source must be str or bytes")
+    src = bytes(src)
+
+    res = _call(lib, lib.gbnf_compile(src, len(src)))
+    if not res.get("ok"):
+        raise GbnfError(res.get("error", {}).get("message", "compile failed"))
+    out = res["spec"]
+    return out if as_text else json.loads(out)
 
 
 class Grammar:

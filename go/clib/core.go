@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	bnf "github.com/tabnas/bnf/go"
 	gbnf "github.com/tabnas/gbnf/go"
 	tabnas "github.com/tabnas/parser/go"
 )
@@ -96,6 +97,45 @@ func loadGrammar(src string) string {
 	loaded[id] = &grammar{tn: tn}
 	reg.Unlock()
 	return reply(map[string]any{"ok": true, "handle": id})
+}
+
+// compileSpec compiles GBNF source into a serialized recognition spec —
+// pure data that libtabnas (or any tabnas runtime) can load and run
+// without this front-end present.
+//
+// This is the "compile here, validate anywhere" door, and it is a
+// SEPARATE question from gbnf_parse. Installing natively keeps the
+// grammar's lexing configuration by construction; serializing has to
+// carry it deliberately, and until @tabnas/bnf v0.1.5 it did not — the
+// emitted spec dropped GBNF's empty ignore set and disabled matchers,
+// so a reloaded arithmetic.gbnf lexed "a+b" as one text token and
+// rejected "a+b=c". That is why this function did not ship with the
+// rest of the surface, and why core_test.go grades what it emits
+// against the corpus in both directions rather than merely checking
+// that it is valid JSON.
+//
+// Recognition rather than pure form: the AST does not cross this
+// boundary, so the tree-building hooks would be dead weight in a spec
+// whose only job is to answer accept/reject.
+func compileSpec(src string) string {
+	// Builtins: true is required, not optional — ToRecognitionSpec
+	// refuses a spec whose actions are still closures, and closures
+	// cannot cross a data boundary at all.
+	spec, err := gbnf.Gbnf(src, &gbnf.ConvertOptions{Builtins: true})
+	if err != nil {
+		return failDoc(grammarErrCode(err), firstLine(err.Error()))
+	}
+
+	data, err := bnf.ToRecognitionSpec(spec)
+	if err != nil {
+		return failDoc("compile", firstLine(err.Error()))
+	}
+
+	// ToJsonic, not encoding/json: a regex is emitted as an "@/src/flags"
+	// sentinel that the engine decodes on load. encoding/json sees the
+	// holder's unexported fields and writes {}, which would drop every
+	// match token and leave a grammar that lexes nothing.
+	return reply(map[string]any{"ok": true, "spec": bnf.ToJsonic(data, true, 0)})
 }
 
 // parseWith answers whether src is in the grammar's language.
