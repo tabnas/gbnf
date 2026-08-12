@@ -21,7 +21,10 @@ accepts. What none of them give you is a way to answer *"does this
 string match my grammar?"* without loading a model. That question — the
 most-asked one around GBNF — is what this package answers: compile the
 grammar once, then parse candidate strings against it, offline, in
-milliseconds.
+milliseconds. The full account — why the sampler ecosystem leaves the
+question unanswered, and what offline validation changes for grammar
+test loops, CI, and AI agents that generate grammars — is in
+[`ts/doc/concepts.md`](ts/doc/concepts.md#what-gbnf-is-for).
 
 ```bash
 npm install @tabnas/parser @tabnas/bnf @tabnas/gbnf
@@ -219,6 +222,28 @@ newline — which makes the generate → check → repair loop scriptable for
 AI agents that write grammars. Full contract in
 [`ts/doc/reference.md`](ts/doc/reference.md#command-line-gbnf-check).
 
+## Render, and the ABNF bridge
+
+The notation arrow runs both ways: `renderGbnf` writes a grammar IR
+back out as GBNF text, and `parseGbnf(renderGbnf(g))` reproduces the
+IR exactly — a fixed point graded over both conformance corpora.
+Because [`@tabnas/abnf`](https://github.com/tabnas/abnf) parses into
+the same IR, the pair is an **ABNF → GBNF bridge**: any grammar a
+sibling front-end reads becomes a `.gbnf` file a sampler can consume.
+
+```js
+const { parseAbnf } = require('@tabnas/abnf')
+const { renderGbnf } = require('@tabnas/gbnf')
+
+renderGbnf(parseAbnf('greet = "hi"\n')) // => 'root ::= greet\ngreet ::= [hH] [iI]\n'
+```
+
+Note what happened to `"hi"`: ABNF literals are case-insensitive by
+default and GBNF's are case-sensitive, so the renderer expands the
+literal into classes that accept exactly the same strings. Constructs
+GBNF cannot express faithfully are refused with `GbnfRenderError`,
+never approximated.
+
 ## Conformance
 
 The corpus is llama.cpp's own `grammars/` directory, copied verbatim
@@ -254,13 +279,14 @@ allocation, first-set analysis — lives in
 GBNF text ──parseGbnf──▶ Grammar IR ──emitGrammarSpec──▶ GrammarSpec
 ```
 
-This package owns the first arrow, plus the lexer settings the second
+This package owns the first arrow — in both directions, `parseGbnf`
+in and `renderGbnf` back out — plus the lexer settings the second
 arrow's output needs to behave scannerlessly.
 
 | Path | Description |
 |---|---|
 | [`ts/`](ts/) | TypeScript / JavaScript (`@tabnas/gbnf`). Canonical. |
-| [`go/`](go/) | The Go port of the front-end. Reads `.gbnf` text and compiles the whole corpus; parse-level conformance grading stays TS-only until the Go engine implements negotiated lexing (`lex.relex`). See [`go/README.md`](go/README.md). |
+| [`go/`](go/) | The Go port of the front-end. Reads `.gbnf` text, compiles the whole corpus, and grades accept/reject on five of the eight grammars; the other three wait on guards that are TypeScript-only in `@tabnas/bnf`. See [`go/README.md`](go/README.md). |
 
 ## Documentation
 

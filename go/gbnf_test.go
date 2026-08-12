@@ -4,7 +4,7 @@
 // the engine over a rule table, so internal shape parity is not
 // available. What IS held in common is the accepted language and the
 // emitted IR — these cases mirror ts/test/gbnf.test.js, and the corpus
-// test below grades the same seven llama.cpp reference grammars.
+// tests below grade the same eight llama.cpp reference grammars.
 package gbnf
 
 import (
@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	bnf "github.com/tabnas/bnf/go"
+	tabnas "github.com/tabnas/parser/go"
 )
 
 func mustParse(t *testing.T, src string) *bnf.Grammar {
@@ -247,9 +248,9 @@ func TestDiagnosticsSayGbnf(t *testing.T) {
 	}
 }
 
-// The eight llama.cpp reference grammars. Every one must COMPILE; what
-// they then accept is graded by the TypeScript corpus test, whose known
-// gaps are documented in ts/doc/known-gaps.md and apply here too.
+// The eight llama.cpp reference grammars. Every one must COMPILE, and
+// what they accept is graded below; the known gaps are documented in
+// ts/doc/known-gaps.md and apply here too.
 func TestCorpusCompiles(t *testing.T) {
 	dir := filepath.Join("..", "test", "corpus")
 	names := []string{
@@ -268,6 +269,100 @@ func TestCorpusCompiles(t *testing.T) {
 		}
 		if spec.Rule["root"] == nil {
 			t.Errorf("%s.gbnf compiled without a root rule", name)
+		}
+	}
+}
+
+// Accept/reject grading, the direction that was TypeScript-only until
+// the Go engine gained negotiated lexing (parser/go v0.8.5).
+//
+// The samples mirror ts/test/corpus.test.js — read off the grammar
+// text, valid ones paired with near-misses one character outside the
+// language. Five of the eight grammars now agree with TypeScript in
+// both directions.
+var corpusAccept = map[string][]string{
+	"chess":    {"1. e4 e5\n2. Nxe4 e5\n"},
+	"japanese": {"こんにちは"},
+	"json":     {"{\"answer\": [1, 2, 3]}", "{\"a\": \"\\n\"}"},
+	"json_arr": {"[\n1,\n2\n]"},
+	"list":     {"- a\n"},
+}
+
+var corpusReject = map[string][]string{
+	"arithmetic": {"a=b", "a=b+c\n"},
+	"c":          {"int x=1;\n"},
+	"chess":      {"1. e4\n"},
+	"english":    {"hello world\n"},
+	"japanese":   {"hello"},
+	"json":       {"{\"a\":1,}"},
+	"json_arr":   {"[\n1, 2\n]"},
+	"list":       {"-a\n"},
+}
+
+// Samples that are INSIDE the grammar's language but that this runtime
+// cannot yet parse. Asserted as failures, the way ts/test/corpus.test.js
+// asserts its own: if one starts working the suite goes red, and this
+// table plus ts/doc/known-gaps.md have to move together.
+//
+// The cause is one gap, not three. Negotiated lexing (parser/go
+// v0.8.5) is necessary but not sufficient: the shared compiler's
+// contested-alternative guards — FOLLOW / FOLLOW2 repetition exits,
+// keyword-shadow guards, left factoring — are TypeScript-only in
+// @tabnas/bnf, so a Go-compiled spec lacks the alternates that decide
+// these three grammars. That is bnf/go's to close, not this repo's.
+var corpusExpectedFailures = map[string][]string{
+	"arithmetic": {"a+b=c\n", "x=y\n"},
+	"c":          {"int x = 1;\n"},
+	"english":    {"Hello world.\n"},
+}
+
+func corpusParse(t *testing.T, name, sample string) error {
+	t.Helper()
+	src, err := os.ReadFile(filepath.Join("..", "test", "corpus", name+".gbnf"))
+	if err != nil {
+		t.Fatalf("cannot read %s.gbnf: %v", name, err)
+	}
+	tn := tabnas.Make()
+	if _, err := Install(tn, string(src), nil); err != nil {
+		t.Fatalf("%s.gbnf failed to compile: %v", name, err)
+	}
+	_, err = tn.Parse(sample)
+	return err
+}
+
+func TestCorpusAccepts(t *testing.T) {
+	for name, samples := range corpusAccept {
+		for _, s := range samples {
+			if err := corpusParse(t, name, s); err != nil {
+				t.Errorf("%s.gbnf rejected %q, which is in its language: %v",
+					name, s, err)
+			}
+		}
+	}
+}
+
+// The direction that matters just as much: a validator that accepts
+// everything is not validating.
+func TestCorpusRejects(t *testing.T) {
+	for name, samples := range corpusReject {
+		for _, s := range samples {
+			if err := corpusParse(t, name, s); err == nil {
+				t.Errorf("%s.gbnf accepted %q, which is outside its language",
+					name, s)
+			}
+		}
+	}
+}
+
+func TestCorpusKnownGaps(t *testing.T) {
+	for name, samples := range corpusExpectedFailures {
+		for _, s := range samples {
+			if err := corpusParse(t, name, s); err == nil {
+				t.Errorf("%s.gbnf now parses %q. That is good news, and it "+
+					"means the gap record is out of date — update "+
+					"ts/doc/known-gaps.md and go/README.md, and move this "+
+					"case into corpusAccept.", name, s)
+			}
 		}
 	}
 }

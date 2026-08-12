@@ -19,7 +19,9 @@ be able to turn the conformance suite into a silent no-op.
 - **The census is pinned.** `ts/test/corpus.test.js` lists all eight
   grammars by name and asserts that the directory contains exactly
   those. A glob would let a deleted grammar pass unnoticed. The live
-  corpus (`test/live/`) pins its case count the same way.
+  corpus (`test/live/`) pins its case count and name-uniqueness the
+  same way — and additionally pins that every case is sampled in BOTH
+  directions, so a new case cannot ship compile-only.
 - **A gap is an assertion, not an omission.** Samples this compiler
   cannot parse live in `EXPECTED_FAILURES`, asserted with
   `notEqual(err, null)`. If one starts working the suite goes **red**,

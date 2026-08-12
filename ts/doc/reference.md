@@ -10,10 +10,10 @@ All exports come from the package root:
 ```js ignore
 const {
   VERSION,
-  gbnf, gbnfConvert, toSpec, parseGbnf,
+  gbnf, gbnfConvert, toSpec, parseGbnf, renderGbnf,
   emitGrammarSpec, eliminateLeftRecursion,
   gbnfRules,
-  GbnfParseError, GbnfCompileError,
+  GbnfParseError, GbnfCompileError, GbnfRenderError,
 } = require('@tabnas/gbnf')
 ```
 
@@ -47,6 +47,42 @@ transforming a grammar.
 Validation runs here, not in the emitter, so the returned `Grammar` is
 always one the shared compiler can build: `root` exists, every reference
 resolves, and no tokenizer-token terminals remain.
+
+### `renderGbnf(grammar, opts?) => string`
+
+The inverse of `parseGbnf`: take a grammar IR and return GBNF source.
+Because `@tabnas/abnf` parses into the same IR, this is also the
+ABNF → GBNF bridge — any grammar a sibling front-end can read becomes
+a `.gbnf` file a sampler can consume.
+
+```js
+const { parseAbnf } = require('@tabnas/abnf')
+const { renderGbnf } = require('@tabnas/gbnf')
+
+renderGbnf(parseAbnf('greet = "hi"\n')) // => 'root ::= greet\ngreet ::= [hH] [iI]\n'
+```
+
+- `grammar: Grammar` — the IR (`{ productions: [...] }`).
+- `opts?.start: string` — the production a synthesized `root` should
+  reference when the grammar has no rule named `root` (default: the
+  first production). Ignored when `root` exists.
+
+Two properties, both pinned by `ts/test/render.test.js`:
+
+- **Fixed point.** For a grammar that came from GBNF,
+  `parseGbnf(renderGbnf(g))` reproduces `g` exactly — graded over the
+  whole llama.cpp corpus and all 70 live-corpus grammars. The renderer
+  chooses spellings, never meanings.
+- **Faithful or refused.** Constructs GBNF cannot express raise
+  `GbnfRenderError` (`.rule` names the production): an engine lexer
+  `token`, an ABNF `prose` element, a regex terminal that is not a
+  character class, an illegal rule name, a duplicate production. The
+  one exact expansion is performed rather than refused: a
+  case-INSENSITIVE literal (ABNF's default) becomes an equivalent
+  sequence — `"hi"` → `[hH] [iI]`, `2"ab"` → `([aA] [bB]){2}` — which
+  accepts precisely the same strings. A case-insensitive literal
+  containing a non-ASCII cased character has no exact expansion and is
+  refused.
 
 ### `emitGrammarSpec(grammar, opts?) => GrammarSpec`
 
@@ -125,6 +161,16 @@ The source is GBNF, but does not describe a buildable grammar. Fields:
 
 Raised for: no rule named `root`; a reference to a rule that is never
 defined; a tokenizer-token terminal.
+
+### `GbnfRenderError`
+
+The grammar IR handed to `renderGbnf` does not describe a grammar GBNF
+can express. Fields:
+
+| Field | Meaning |
+|---|---|
+| `name` | `'GbnfRenderError'` |
+| `rule` | the production being rendered, when one is in scope |
 
 ```js
 const { parseGbnf } = require('@tabnas/gbnf')

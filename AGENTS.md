@@ -23,14 +23,33 @@ elimination, tail-repeat rewriting, probe dispatch, literal lifting,
 token allocation, first-set analysis, `$stepN` chain emission.
 `@tabnas/abnf` (RFC 5234) and `@tabnas/ebnf` are the sibling front-ends.
 
-**This repo owns exactly two things:** the notation (GBNF text → IR) and
-the lexer settings the emitted spec carries, because scannerlessness is
-a property of the notation rather than of the IR.
+**This repo owns exactly two things:** the notation — GBNF text ⇄ IR,
+both directions (`parseGbnf` / `renderGbnf`) — and the lexer settings
+the emitted spec carries, because scannerlessness is a property of the
+notation rather than of the IR.
 
 **The value proposition**: GBNF is consumed by llama.cpp, XGrammar (and
 therefore vLLM and SGLang), KoboldCpp, LocalAI and node-llama-cpp, and
 none of them can answer "does this string match my grammar?" without a
 model. This can.
+
+**Why that gap exists**: GBNF's original purpose is constrained
+decoding — at each generation step the sampler masks every vocabulary
+token that would step outside the grammar's language, so the model
+cannot emit text outside the grammar. In the sampler integrations the
+grammar only ever runs *inside generation*; the ecosystem's one
+offline checker, llama.cpp's `llama-gbnf-validator`, is a C++ example
+binary answering accept/reject only — no library form, no AST, no
+structured errors. GBNF's quirks all follow from that origin — scannerless,
+mandatory `root`, ambiguity legal, tokenizer-token terminals — and so
+do this repo's design constraints. The full account is
+[`ts/doc/concepts.md` §"What GBNF is for"](ts/doc/concepts.md#what-gbnf-is-for);
+the developer consequences (grammar test loops, CI gating, the
+generate → check → repair loop that `gbnf-check --json` gives agents
+that write grammars) are
+[§"What this changes for AI developers"](ts/doc/concepts.md#what-this-changes-for-ai-developers).
+Keep both in mind when judging a change: anything that silently widens
+or narrows an accepted language defeats the purpose stated there.
 
 ## Repository map
 
@@ -39,10 +58,12 @@ model. This can.
 | [`ts/src/converter.ts`](ts/src/converter.ts) | The front-end. `gbnfRules` (the tabnas meta-grammar that reads GBNF), the terminal decoders, the validation passes, and the emitted lexer settings. |
 | [`ts/src/gbnf.ts`](ts/src/gbnf.ts) | Plugin facade — `tn.gbnf(src)` / `tn.gbnf.toSpec(src)`, plus the bare exports and `VERSION`. |
 | [`ts/src/cli.ts`](ts/src/cli.ts) | `gbnf-check`, the validator CLI (`bin` in `package.json`). Compile a grammar, check samples, exit 0/1/2/3; `--json` for a stable machine-readable report. |
+| [`ts/src/render.ts`](ts/src/render.ts) | `renderGbnf` — the inverse arrow, grammar IR → GBNF text. Fixed point with `parseGbnf`; refuses what GBNF cannot say; expands ABNF's case-insensitive literals exactly. With `@tabnas/abnf` (same IR), the ABNF → GBNF bridge. |
 | [`ts/test/gbnf.test.js`](ts/test/gbnf.test.js) | The main suite: IR shape per construct, escapes, classes, repetition, errors, exact lexing, end-to-end parses, plugin surface. |
 | [`ts/test/corpus.test.js`](ts/test/corpus.test.js) | The llama.cpp conformance corpus — compile-all, plus accept / reject / expected-failure samples. |
 | [`ts/test/live.test.js`](ts/test/live.test.js) | The live corpus — llama.cpp's 70 expected JSON-schema-to-grammar outputs, compiled and parsed. |
 | [`ts/test/cli.test.js`](ts/test/cli.test.js) | The CLI, spawned as a child process — exit codes, both report formats, stdin in both roles, the trailing-newline hint. |
+| [`ts/test/render.test.js`](ts/test/render.test.js) | The renderer — parse→render→parse fixed point over BOTH corpora, the refused constructs, the case-insensitive expansion, the ABNF bridge end to end. |
 | [`ts/test/doc-examples.test.js`](ts/test/doc-examples.test.js) | Runs every ` ```js ` fence in the repo's markdown that carries a `// =>` assertion. |
 | [`ts/test/version.test.js`](ts/test/version.test.js) | The exported `VERSION` against `ts/package.json`. |
 | [`test/corpus/`](test/corpus/) | llama.cpp's own `grammars/*.gbnf`, verbatim and **committed**. See the README there for provenance. |
@@ -81,7 +102,7 @@ compiler's guards, and are written up as such in `known-gaps.md` §2.
 **Do not narrow a corpus case to make it green.** The grammars are
 upstream bytes; the whole point is that they are not tidied for us.
 
-## Two things that are easy to get wrong
+## Three things that are easy to get wrong
 
 **1. GBNF string literals are case-SENSITIVE.** ABNF's are
 case-insensitive by default; this is the opposite. The IR carries
@@ -99,6 +120,20 @@ converter emits an empty ignore set and switches off
 space/line/comment/string/number/text/value lexing, so what remains is
 the grammar's own tokens. Removing any of that turns `tn.parse()` from
 an acceptance test into a lenient one — silently.
+
+**3. Negotiated lexing is load-bearing.** Every emitted spec sets
+`lex: { relex: true }`. GBNF terminals overlap freely
+(`ws ::= [ \t\n]*` next to the literal `"\n"` is the canonical case),
+and a tokeniser freezes one identity per span at first cut; relex lets
+an alternative re-cut the span under its own token list, which is what
+lets the corpus grammars parse their own samples. It cannot
+over-accept — a wrong cut still fails the parse — so removing it never
+shows up as a wrong answer, only as corpus grammars failing mid-input
+with unexpected-character errors far from the cause.
+`requireRelexSupport` probes the engine and refuses to compile on one
+that silently ignores the option; do not weaken the probe. The full
+mechanism is
+[`ts/doc/concepts.md` §"Negotiated lexing"](ts/doc/concepts.md#negotiated-lexing).
 
 ## Design notes for the meta-grammar
 
@@ -192,15 +227,25 @@ module proxy.
 
 ## Not implemented yet
 
-- **Go parse-level parity.** The Go front-end IS implemented
-  (`go/parser_gbnf.go` + `go/facade.go`, mirroring `ts/src/converter.ts`;
-  its suite compiles the corpus). What it cannot do yet is *grade* the
-  corpus: the Go engine has no negotiated lexing (`lex.relex` is
-  "TypeScript only" per `parser/go`'s `doc/differences.md`) and the
-  front-end has no `markClassesEager` port, so accept/reject conformance
-  runs only in `ts/`. The engine gap is `@tabnas/parser`'s to close,
-  not this repo's — the same fix-it-upstream principle alignment rule 2
-  states for `@tabnas/bnf`.
-- **A renderer** (engine → GBNF), the mirror of `@tabnas/debug`'s ABNF
-  round-trip. It would give an ABNF ⇄ GBNF bridge for free, and belongs
-  beside the ABNF renderer in `@tabnas/debug`.
+- **Go parse-level parity — 5 of 8, and the remaining blocker is
+  upstream.** Negotiated lexing landed in `parser/go` v0.8.5 and
+  `applyExactLexing` opts in, so the Go suite now grades accept/reject:
+  `chess`, `japanese`, `json`, `json_arr` and `list` agree with
+  TypeScript in both directions. `arithmetic`, `c` and `english` do
+  not, and are asserted as expected failures in
+  `go/gbnf_test.go` (`corpusExpectedFailures`) so a fix goes red.
+  **The cause is one gap, not three:** relex is necessary but not
+  sufficient — the shared compiler's contested-alternative guards
+  (`computeFollowSets`, `computeFollowPairs`, `leftFactor`, and the
+  keyword-shadow guards) exist only in the TypeScript `@tabnas/bnf`,
+  so a Go-compiled spec lacks the alternates that decide those three.
+  That is `@tabnas/bnf`'s to close (alignment rule 2), not this
+  repo's. `markClassesEager` also has no Go port — smaller, and local.
+- **The Go renderer.** `renderGbnf` (IR → GBNF text) is TS-only,
+  `ts/` being canonical; the Go port follows.
+
+The renderer that used to be on this list lives here now, by decision:
+emission is the notation's own inverse (this package owns "GBNF text →
+IR", so it owns "IR → GBNF text"), not `@tabnas/debug`'s
+engine-instance reconstruction. See
+[`ts/doc/concepts.md` §"Rendering, and the ABNF bridge"](ts/doc/concepts.md#rendering-and-the-abnf-bridge).

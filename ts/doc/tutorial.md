@@ -9,6 +9,14 @@ from your input. Every step builds on the last; follow them in order.
 tabnas `GrammarSpec`. You install that spec on a tabnas engine, and the
 engine parses inputs in your grammar and hands you back an AST.
 
+Why you would write a GBNF grammar at all: it is the notation for
+**constrained decoding**. A `.gbnf` file makes a sampler mask every
+token that would step outside the grammar, so a language model can
+only emit strings the grammar accepts. This package supplies the
+offline half of that workflow — "does this string match my grammar?" —
+with no model in the loop. The full story is in
+[concepts.md](concepts.md#what-gbnf-is-for).
+
 > Two dialect notes up front, because both are easy to trip over if you
 > have written ABNF. GBNF defines a rule with `::=` and separates
 > alternatives with `|`. And its string literals are **case-sensitive** —

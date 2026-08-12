@@ -104,6 +104,31 @@ a.parse('yes').rule // => 'root'
 b.parse('no').rule  // => 'root'
 ```
 
+## Turn an ABNF grammar into a `.gbnf` for a sampler
+
+Many formats are already specified in RFC-grade ABNF. `@tabnas/abnf`
+parses ABNF into the same grammar IR this package renders, so the
+bridge is one line — and the output is a constraint file any
+GBNF-consuming sampler can load:
+
+```js
+const { parseAbnf } = require('@tabnas/abnf')
+const { renderGbnf } = require('@tabnas/gbnf')
+
+const gbnfText = renderGbnf(parseAbnf('greet = "hi"\n'))
+gbnfText // => 'root ::= greet\ngreet ::= [hH] [iI]\n'
+```
+
+Three things to know. GBNF needs a `root`, so one is synthesized to
+reference the first production (pick another with
+`{ start: 'name' }`). ABNF's case-insensitive literals are expanded
+into exactly-equivalent classes (`[hH] [iI]`), because GBNF literals
+are case-sensitive. And anything GBNF cannot express faithfully — a
+grammar leaning on the engine's lexer tokens, a prose element — raises
+`GbnfRenderError` instead of being approximated. Check the result with
+`gbnf-check` (and `llama-gbnf-validator`, for the line-break rules)
+before shipping it.
+
 ## Match case-insensitively
 
 GBNF has no case-insensitive literal — that is an ABNF feature, and it
