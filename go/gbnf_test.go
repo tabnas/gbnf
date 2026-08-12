@@ -1,13 +1,15 @@
 // Copyright (c) 2026 Richard Rodger and other contributors, MIT License
 
-// The Go front-end parses GBNF by hand where the TypeScript one drives
-// the engine over a rule table, so internal shape parity is not
-// available. What IS held in common is the accepted language and the
-// emitted IR — these cases mirror ts/test/gbnf.test.js, and the corpus
-// tests below grade the same eight llama.cpp reference grammars.
+// Both front-ends now read GBNF the same way — a tabnas rule table
+// driven by the engine — so what is held in common is the notation's
+// definition, the accepted language and the emitted IR. These cases
+// mirror ts/test/gbnf.test.js; the corpus tests below grade the same
+// eight llama.cpp reference grammars, and TestLiveCorpusCompiles the
+// same 70 schema-generated ones.
 package gbnf
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -370,6 +372,44 @@ func TestCorpusKnownGaps(t *testing.T) {
 					"ts/doc/known-gaps.md and go/README.md, and move this "+
 					"case into corpusAccept.", name, s)
 			}
+		}
+	}
+}
+
+// The live corpus: the 70 expected outputs of llama.cpp's
+// JSON-schema-to-grammar converter (test/live/, graded in full by
+// ts/test/live.test.js). Compiling all 70 here exercises the
+// meta-grammar over far more real-world GBNF than the eight reference
+// grammars do — nested groups, deep alternation, long class runs and
+// every repetition form the converter emits.
+func TestLiveCorpusCompiles(t *testing.T) {
+	raw, err := os.ReadFile(
+		filepath.Join("..", "test", "live", "json-schema-corpus.json"))
+	if err != nil {
+		t.Fatalf("cannot read the live corpus: %v", err)
+	}
+	var corpus struct {
+		Cases []struct {
+			Name    string `json:"name"`
+			Grammar string `json:"grammar"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(raw, &corpus); err != nil {
+		t.Fatalf("cannot parse the live corpus: %v", err)
+	}
+	// The census is pinned the way ts/test/live.test.js pins it: a case
+	// quietly vanishing would otherwise just mean one less check.
+	if len(corpus.Cases) != 70 {
+		t.Fatalf("expected 70 live cases, got %d", len(corpus.Cases))
+	}
+	for _, c := range corpus.Cases {
+		spec, err := Gbnf(c.Grammar, nil)
+		if err != nil {
+			t.Errorf("%q failed to compile: %v", c.Name, err)
+			continue
+		}
+		if spec.Rule["root"] == nil {
+			t.Errorf("%q compiled without a root rule", c.Name)
 		}
 	}
 }

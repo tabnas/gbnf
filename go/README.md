@@ -4,8 +4,10 @@ Go port of [`@tabnas/gbnf`](../ts) — a llama.cpp GBNF front-end for the
 [tabnas](https://github.com/tabnas/parser) parsing engine.
 
 **Port status: front-end implemented.** `ParseGbnf` reads `.gbnf` text
-into the shared grammar IR with a hand-written recursive-descent parser
-(`parser_gbnf.go`), and `Gbnf` / `ToSpec` / `Install` (`facade.go`)
+into the shared grammar IR using a tabnas meta-grammar — the rule table
+in `parser_gbnf.go` is executed by the engine this front-end compiles
+for, the same design as `ts/src/converter.ts` — and
+`Gbnf` / `ToSpec` / `Install` (`facade.go`)
 emit and install a `GrammarSpec` with GBNF's exact lexing — empty
 ignore set, default matchers off, `lex.empty` computed from the IR.
 The same validation passes as the TypeScript front-end run here:
