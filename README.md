@@ -6,6 +6,9 @@
 [![tabnas standard](https://tabnas.github.io/status/badges/gbnf-standard.svg)](https://tabnas.github.io/status/)
 <!-- /tabnas-badges -->
 
+📖 **[tabnas.github.io/gbnf](https://tabnas.github.io/gbnf/)** — what this
+is for, and why you would use it.
+
 GBNF grammar compiler for the
 [tabnas](https://github.com/tabnas/parser) parser. Takes GBNF source —
 the [llama.cpp](https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md)
