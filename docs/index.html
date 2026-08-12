@@ -285,9 +285,13 @@ tn.parse(<span class="y">'{"a": 1}'</span>)  <span class="c">// => the AST</span
 <div>
 <h3>Go</h3>
 <pre>tn := tabnas.Make()
-gbnf.Install(tn, src, <span class="k">nil</span>)
+<span class="k">if</span> _, err := gbnf.Install(tn, src, <span class="k">nil</span>); err != <span class="k">nil</span> {
+    <span class="c">// the grammar is broken</span>
+}
 
-tn.Parse(<span class="y">`{"a": 1}`</span>)</pre>
+<span class="k">if</span> _, err := tn.Parse(<span class="y">`{"a": 1}`</span>); err != <span class="k">nil</span> {
+    <span class="c">// outside the language — err says where</span>
+}</pre>
 </div>
 </div>
 
@@ -318,8 +322,9 @@ tn.Parse(<span class="y">`{"a": 1}`</span>)</pre>
   <div class="card">
     <h3>Close an agent's repair loop</h3>
     <p>
-      An agent writing a grammar gets back which rule, which position and
-      why — enough to fix it without a human reading stderr.
+      A rejection comes back as a code, a line and a column; a grammar
+      that will not compile names the rule. Enough to fix either without
+      a human reading stderr.
     </p>
   </div>
 </div>
@@ -346,8 +351,11 @@ tn.Parse(<span class="y">`{"a": 1}`</span>)</pre>
 <h2>Three outcomes, not two</h2>
 
 <p>
-  A rejection is an <em>answer</em>, not a failure. Only a broken grammar
-  or a misused handle raises:
+  A rejection is an <em>answer</em>, not a failure — an out-of-language
+  string comes back as a falsy verdict, never an exception. Invalid calls
+  and operational failures still raise, as they should: a grammar that
+  will not compile, a closed handle, a bad argument type, an unreadable
+  file, a shared library that cannot be found.
 </p>
 
 <div class="scroll">
@@ -388,15 +396,21 @@ tn.Parse(<span class="y">`{"a": 1}`</span>)</pre>
 <pre>$ gbnf-check json.gbnf --text '{"a": 1,}' --json
 {
   <span class="k">"tool"</span>: "gbnf-check",
+  <span class="k">"version"</span>: "0.1.4",
   <span class="k">"ok"</span>: false,
   <span class="k">"exit"</span>: 1,
-  <span class="k">"grammar"</span>: { "source": "json.gbnf", "ok": true, "error": null },
+  <span class="k">"grammar"</span>: {
+    "source": "json.gbnf",
+    "ok": true,
+    "error": null
+  },
   <span class="k">"samples"</span>: [
     {
       "source": "text#0",
       "ok": false,
       "length": 9,
       "error": {
+        "name": "SyntaxError",
         "message": "[tabnas/unexpected]: unexpected character(s): ,",
         "code": "unexpected",
         "line": 1,
@@ -404,7 +418,13 @@ tn.Parse(<span class="y">`{"a": 1}`</span>)</pre>
       }
     }
   ],
-  <span class="k">"caveats"</span>: [ { "code": "rejection-may-be-engine-limit", … } ]
+  <span class="k">"caveats"</span>: [
+    {
+      "code": "rejection-may-be-engine-limit",
+      "message": "a rejection is this engine's answer, not always the grammar's: a grammar that needs backtracking can reject here and still constrain a sampler correctly",
+      "url": "https://github.com/tabnas/gbnf/blob/main/ts/doc/known-gaps.md"
+    }
+  ]
 }</pre>
 
 <p>
@@ -525,9 +545,12 @@ tn.Parse(<span class="y">`{"a": 1}`</span>)</pre>
     JSON-schema-to-grammar converter, sampled in both directions.
   </li>
   <li>
-    The same corpus, same samples, in every runtime — TypeScript, Go and
-    Python — so a disagreement is a disagreement <em>between runtimes</em>
-    rather than a bug in one binding.
+    The eight grammars and their samples are graded in
+    <strong>all three</strong> runtimes — TypeScript, Go and Python — so a
+    disagreement there is a disagreement <em>between runtimes</em> rather
+    than a bug in one binding. The seventy live grammars are graded in
+    full by TypeScript and compiled (not sampled) by Go; Python does not
+    run them.
   </li>
 </ul>
 
@@ -557,9 +580,29 @@ tn.Parse(<span class="y">`{"a": 1}`</span>)</pre>
     sampler correctly. The JSON report flags it.
   </li>
   <li>
-    <strong>The Python package is not on PyPI yet.</strong> You build the
-    shared library and import the module; a wheel matrix is the obvious
-    next step and is not done.
+    <strong>Nor is a pass proof that llama.cpp will accept it.</strong>
+    Rule boundaries here use a two-token <code>NM ::=</code> lookahead —
+    exact, but insensitive to line breaks, where llama.cpp ends a rule at
+    a top-level newline. This accepts a <em>superset</em>, so a grammar
+    that continues across lines without <code>|</code> can pass here and
+    still be refused by the sampler. Run
+    <code>llama-gbnf-validator</code> too if that is the contract you
+    need.
+  </li>
+  <li>
+    <strong>Tokenizer-token terminals are refused, on purpose.</strong>
+    <code>&lt;think&gt;</code>, <code>&lt;[1000]&gt;</code>,
+    <code>!&lt;/think&gt;</code> and friends are sampler-level: their
+    meaning depends on a model's tokenizer, which an offline checker does
+    not have. They parse — so the error can name the rule — and then
+    compilation fails rather than guessing they were literal text, which
+    would change the accepted language.
+  </li>
+  <li>
+    <strong>The Python package is not on PyPI yet.</strong> There is no
+    <code>pyproject.toml</code> either, so <code>import gbnf</code> needs
+    <code>py/</code> on <code>PYTHONPATH</code> after you build the shared
+    library. A wheel matrix is the obvious next step and is not done.
   </li>
 </ul>
 
@@ -592,8 +635,11 @@ npm i @tabnas/gbnf
 <span class="c"># the Go module</span>
 go get github.com/tabnas/gbnf/go
 
-<span class="c"># the Python binding: build the shared library, then import it</span>
-cd go/clib &amp;&amp; ./build.sh</pre>
+<span class="c"># the Python binding: build the shared library, then put py/ on the path</span>
+<span class="c"># (there is no packaging yet — see “what it will not do”)</span>
+git clone https://github.com/tabnas/gbnf &amp;&amp; cd gbnf
+(cd go/clib &amp;&amp; ./build.sh)
+PYTHONPATH=$PWD/py python3 -c <span class="y">'import gbnf; print(gbnf.version())'</span></pre>
 
 </main>
 
