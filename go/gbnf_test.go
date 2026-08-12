@@ -281,22 +281,32 @@ func TestCorpusCompiles(t *testing.T) {
 // language. Five of the eight grammars now agree with TypeScript in
 // both directions.
 var corpusAccept = map[string][]string{
-	"chess":    {"1. e4 e5\n2. Nxe4 e5\n"},
-	"japanese": {"こんにちは"},
-	"json":     {"{\"answer\": [1, 2, 3]}", "{\"a\": \"\\n\"}"},
-	"json_arr": {"[\n1,\n2\n]"},
-	"list":     {"- a\n"},
+	"arithmetic": {"a+b=c\n", "x=y\n"},
+	"c":          {"int f(){return x;}", "int intx(){intx = 3;}"},
+	"chess":      {"1. e4 e5\n2. Nxe4 e5\n"},
+	"english":    {"Hello, world!", "a b c"},
+	"japanese":   {"こんにちは"},
+	"json":       {"{\"answer\": [1, 2, 3]}", "{\"a\": \"\\n\"}"},
+	"json_arr":   {"[\n1,\n2\n]"},
+	"list":       {"- a\n"},
 }
 
 var corpusReject = map[string][]string{
 	"arithmetic": {"a=b", "a=b+c\n"},
-	"c":          {"int x=1;\n"},
-	"chess":      {"1. e4\n"},
-	"english":    {"hello world\n"},
-	"japanese":   {"hello"},
-	"json":       {"{\"a\":1,}"},
-	"json_arr":   {"[\n1, 2\n]"},
-	"list":       {"-a\n"},
+	// Top level is function declarations only, so a bare statement is
+	// outside the language — with or without spaces around the "=".
+	// "int x = 1;\n" sat in corpusExpectedFailures for months claiming
+	// to be in-language; the canonical TS front-end rejects it too.
+	"c":     {"int x=1;\n", "int x = 1;\n"},
+	"chess": {"1. e4\n"},
+	// Every whitespace run must be followed by another word, so a
+	// trailing newline is outside the language. "Hello world.\n" was
+	// likewise a mislabelled expected-failure, not a gap.
+	"english":  {"hello world\n", "Hello world.\n"},
+	"japanese": {"hello"},
+	"json":     {"{\"a\":1,}"},
+	"json_arr": {"[\n1, 2\n]"},
+	"list":     {"-a\n"},
 }
 
 // Samples that are INSIDE the grammar's language but that this runtime
@@ -304,17 +314,14 @@ var corpusReject = map[string][]string{
 // asserts its own: if one starts working the suite goes red, and this
 // table plus ts/doc/known-gaps.md have to move together.
 //
-// The cause is one gap, not three. Negotiated lexing (parser/go
-// v0.8.5) is necessary but not sufficient: the shared compiler's
-// contested-alternative guards — FOLLOW / FOLLOW2 repetition exits,
-// keyword-shadow guards, left factoring — are TypeScript-only in
-// @tabnas/bnf, so a Go-compiled spec lacks the alternates that decide
-// these three grammars. That is bnf/go's to close, not this repo's.
-var corpusExpectedFailures = map[string][]string{
-	"arithmetic": {"a+b=c\n", "x=y\n"},
-	"c":          {"int x = 1;\n"},
-	"english":    {"Hello world.\n"},
-}
+// EMPTY since @tabnas/bnf v0.1.4 ported the shared compiler's
+// contested-alternative guards (FOLLOW / FOLLOW2 repetition exits,
+// keyword-shadow guards, left factoring — tabnas/bnf#13): arithmetic's
+// samples moved to corpusAccept, and the former c and english entries
+// turned out to be OUTSIDE their languages (the canonical TS front-end
+// rejects them too) and moved to corpusReject. The table and its test
+// stay, so the next gap has somewhere honest to live.
+var corpusExpectedFailures = map[string][]string{}
 
 func corpusParse(t *testing.T, name, sample string) error {
 	t.Helper()
