@@ -71,7 +71,7 @@ or narrows an accepted language defeats the purpose stated there.
 | [`ts/doc/`](ts/doc/) | 4-quadrant Diátaxis docs plus [`known-gaps.md`](ts/doc/known-gaps.md). |
 | [`go/`](go/) | The Go port. Follows `ts/`; see [`go/README.md`](go/README.md). |
 | [`go/clib/`](go/clib/) | `libtabnasgbnf`, the C ABI. Two doors: `gbnf_parse` validates in-process (compiled NATIVELY, since a GBNF grammar's lexing settings are part of its language), and `gbnf_compile` emits a serialized recognition spec so `libtabnas` can validate elsewhere with no GBNF front-end present. See [`go/clib/README.md`](go/clib/README.md). |
-| [`docs/`](docs/) | The GitHub Pages site (`docs/index.html`) — live at [tabnas.github.io/gbnf](https://tabnas.github.io/gbnf/) — aimed at AI developers. One self-contained file, no external requests, tabnas palette — matching [tabnas.github.io/chess](https://tabnas.github.io/chess/). Every code sample on it was run before publication. |
+| [`docs/`](docs/) | The GitHub Pages site (`docs/index.html`) — live at [tabnas.github.io/gbnf](https://tabnas.github.io/gbnf/) — aimed at AI developers. One self-contained file, no external requests, tabnas palette — matching [tabnas.github.io/chess](https://tabnas.github.io/chess/). Every code sample on it was run before publication. Carries a live checker: `docs/gbnf-demo.js` is a committed bundle (`npm run build-demo` in `ts/`), loaded relatively the way tabnas.github.io/chess loads chess-view.js, because Pages serves `docs/` with no build step. |
 | [`py/`](py/) | The Python binding — `ctypes` over `libtabnasgbnf`. Reimplements nothing; graded against the same corpus and samples as the Go and TS suites. |
 
 ## Conformance claim

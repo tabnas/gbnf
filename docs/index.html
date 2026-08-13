@@ -185,6 +185,54 @@
     margin: 1.5rem 0; color: var(--ink-soft); max-width: 40rem;
   }
 
+  /* The demo. Same surface-and-border idiom as .card and pre. */
+  .demo { margin: 1.5rem 0 0.6rem; }
+  .demo-panes {
+    display: grid; gap: 0.9rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .demo-panes label { display: grid; gap: 0.35rem; min-width: 0; }
+  .demo-panes span {
+    font-family: var(--font-mono); font-size: 0.7rem;
+    text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-mute);
+  }
+  .demo textarea {
+    width: 100%; resize: vertical;
+    font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.55;
+    color: var(--ink); background: var(--code-bg);
+    border: 1px solid var(--rule); border-radius: 6px;
+    padding: 0.75rem 0.9rem;
+  }
+  .demo textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+  .demo-out { display: grid; gap: 0.3rem; margin-top: 0.9rem; }
+  .demo-out:empty { display: none; }
+  .demo-row {
+    display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 0.6rem;
+    align-items: baseline;
+    padding: 0.4rem 0.9rem; border: 1px solid var(--rule);
+    border-radius: 6px; background: var(--surface);
+  }
+  .demo-row b {
+    font-family: var(--font-mono); font-size: 0.7rem;
+    text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .demo-row code { font-size: 0.82rem; background: none; padding: 0; }
+  .demo-row small { grid-column: 2; font-size: 0.75rem; color: var(--ink-mute); }
+  .demo-accept b { color: var(--ok); }
+  .demo-reject b, .demo-compile b { color: var(--no); }
+
+  /* With scripts off the boxes still carry the grammar and the samples,
+     so the input is on the page either way; only the verdicts are
+     missing, and the prose says what they are. */
+  .demo-noscript { color: var(--ink-mute); font-size: 0.88rem; }
+
+  @media (max-width: 44rem) {
+    .demo-panes { grid-template-columns: minmax(0, 1fr); }
+    .demo-row { grid-template-columns: minmax(0, 1fr); gap: 0.15rem; }
+    .demo-row small { grid-column: 1; }
+  }
+
   footer {
     margin-top: 4rem; border-top: 1px solid var(--rule);
     padding: 1.5rem 0 4rem; color: var(--ink-mute); font-size: 0.9rem;
@@ -241,6 +289,43 @@
 </p>
 
 <p>That gap is what this fills.</p>
+
+<h2>Try it here</h2>
+
+<p>
+  Both boxes below are editable and the verdicts re-run as you type. The
+  grammar is compiled by the same package you would install, running in
+  this page.
+</p>
+
+<div class="demo" data-demo>
+  <div class="demo-panes">
+    <label>
+      <span>grammar</span>
+      <textarea data-demo-grammar spellcheck="false" rows="4">root    ::= answer " (" conf ")"
+answer  ::= "yes" | "no"
+conf    ::= digit+ "%"
+digit   ::= [0-9]</textarea>
+    </label>
+    <label>
+      <span>samples, one per line</span>
+      <textarea data-demo-samples spellcheck="false" rows="5">yes (90%)
+no (5%)
+maybe (50%)
+yes (90)
+yes  (90%)</textarea>
+    </label>
+  </div>
+  <output data-demo-out class="demo-out"></output>
+</div>
+
+<p class="caption">
+  Every character counts, because GBNF is scannerless:
+  <code>yes&nbsp;&nbsp;(90%)</code> is rejected for the second space. Break
+  the grammar itself and you get a compile error in place of verdicts,
+  which is the distinction the tool exists to keep. Widen it and watch a
+  rejected sample turn green.
+</p>
 
 <h2>Start here</h2>
 
@@ -660,6 +745,81 @@ PYTHONPATH=$PWD/py python3 -c <span class="y">'import gbnf; print(gbnf.version()
     </p>
   </div>
 </footer>
+
+<!-- The demo. A sibling file, loaded relatively, exactly as
+     tabnas.github.io/chess loads chess-view.js — no third-party host, so
+     the page still makes no external requests. Built by
+     `npm run build-demo` in ts/ and committed, because Pages serves docs/
+     as-is with no build step. -->
+<script src="./gbnf-demo.js"></script>
+<script>
+  (function () {
+    var root = document.querySelector('[data-demo]')
+    var api = window.tabnasGbnfDemo
+    if (!root || !api) return
+
+    var grammarEl = root.querySelector('[data-demo-grammar]')
+    var samplesEl = root.querySelector('[data-demo-samples]')
+    var outEl = root.querySelector('[data-demo-out]')
+
+    // Engine diagnostics are multi-line and ANSI-coloured for a terminal.
+    // A verdict line is neither.
+    function oneLine (e) {
+      return String(e && e.message ? e.message : e)
+        .split('\n')[0]
+        .replace(/\u001b\[[0-9;]*m/g, '')
+    }
+
+    function row (kind, text, why) {
+      var el = document.createElement('div')
+      el.className = 'demo-row demo-' + kind
+      var tag = document.createElement('b')
+      tag.textContent = 'compile' === kind ? 'grammar' : kind
+      var body = document.createElement('code')
+      body.textContent = text
+      el.appendChild(tag)
+      el.appendChild(body)
+      if (why) {
+        var note = document.createElement('small')
+        note.textContent = why
+        el.appendChild(note)
+      }
+      return el
+    }
+
+    function run () {
+      var src = grammarEl.value
+      var samples = samplesEl.value.split('\n').filter(function (s) { return '' !== s })
+
+      // A FRESH instance per compile, deliberately: a GBNF grammar's lexer
+      // settings are instance-wide, so reusing one across grammars would
+      // let the previous grammar's settings decide this one's language.
+      // Within a single grammar the instance is reusable, and gbnf-check
+      // does the same — compile once, check every sample against it.
+      var tn
+      try {
+        tn = new api.Tabnas({ plugins: [api.gbnf] })
+        tn.gbnf(src)
+      } catch (e) {
+        outEl.replaceChildren(row('compile', oneLine(e), ''))
+        return
+      }
+
+      outEl.replaceChildren.apply(outEl, samples.map(function (sample) {
+        try {
+          tn.parse(sample)
+          return row('accept', sample, '')
+        } catch (e) {
+          return row('reject', sample, oneLine(e))
+        }
+      }))
+    }
+
+    grammarEl.addEventListener('input', run)
+    samplesEl.addEventListener('input', run)
+    run()
+  })()
+</script>
 
 </body>
 </html>
