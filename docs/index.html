@@ -83,6 +83,11 @@
     font-family: var(--font-heading);
     font-size: 1.9rem; font-weight: 600; letter-spacing: 0.01em;
   }
+  .brand nav {
+    margin-left: auto;
+    display: flex; gap: 1rem; flex-wrap: wrap;
+    font-size: 0.9rem;
+  }
   .motto {
     color: var(--ink-mute); font-family: var(--font-heading);
     font-style: italic; font-size: 1.05rem;
@@ -247,6 +252,12 @@
     <div class="brand">
       <b>@tabnas/gbnf</b>
       <span class="motto">does this text match your grammar?</span>
+      <nav aria-label="Project links">
+        <a href="https://github.com/tabnas/gbnf">GitHub</a>
+        <a href="https://www.npmjs.com/package/@tabnas/gbnf">npm</a>
+        <a href="https://pkg.go.dev/github.com/tabnas/gbnf/go">pkg.go.dev</a>
+        <a href="https://tabnas.dev">tabnas.dev</a>
+      </nav>
     </div>
     <p class="tagline">
       GBNF constrains a model while it generates. This answers the same
