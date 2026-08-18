@@ -203,7 +203,7 @@ func decodeString(raw string) (string, error) {
 // decodeCharClass lowers `[a-z]`, `[^\n]`, `[-+*/]` onto a regex element.
 // The class is re-emitted rather than passed through: GBNF and RE2 agree
 // on `[`, `]`, `^` and `-` and on nothing else.
-func decodeCharClass(raw string) (*bnf.Element, error) {
+func decodeCharClass(raw string, tkn *tabnas.Token) (*bnf.Element, error) {
 	i := 1
 	end := len(raw) - 1
 	negated := false
@@ -266,6 +266,7 @@ func decodeCharClass(raw string) (*bnf.Element, error) {
 		Kind:    bnf.KindRegex,
 		Pattern: "[" + neg + strings.Join(parts, "") + "]",
 		Flags:   flags,
+		Sp:      spanOf(tkn),
 	}, nil
 }
 
@@ -469,6 +470,7 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 			S: "#NM #DEF",
 			Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
 				r.U["name"] = r.O[0].Src
+				r.U["nameTkn"] = r.O[0]
 			},
 			P: "alts",
 		})...)
@@ -487,7 +489,12 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 			}
 			name, _ := r.U["name"].(string)
 			ps := r.Node.(*[]*bnf.Production)
-			*ps = append(*ps, &bnf.Production{Name: name, Alts: *as})
+			nameTkn, _ := r.U["nameTkn"].(*tabnas.Token)
+			// The name, not the body: that is what an outline entry,
+			// go-to-definition and a whole-rule diagnostic want.
+			*ps = append(*ps, &bnf.Production{
+				Name: name, Alts: *as, Sp: spanOf(nameTkn),
+			})
 		})
 	})
 
@@ -590,11 +597,12 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 				if lit != "" {
 					r.Node = &bnf.Element{
 						Kind: bnf.KindTerm, Literal: lit, CaseSensitive: true,
+						Sp: spanOf(r.O[0]),
 					}
 				}
 			}},
 			alt{S: "#CC", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
-				el, err := decodeCharClass(r.O[0].Src)
+				el, err := decodeCharClass(r.O[0].Src, r.O[0])
 				if err != nil {
 					failAt(ctx, r.O[0], "%s", err)
 					return
@@ -607,19 +615,25 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 			alt{S: "#DOT", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
 				r.Node = &bnf.Element{
 					Kind: bnf.KindRegex, Pattern: `[\s\S]`, Flags: "u",
+					Sp: spanOf(r.O[0]),
 				}
 			}},
 			// Tokenizer-token terminals parse, then are rejected by name in
 			// rejectTokenTerminals — carried on KindProse, the IR's "not
 			// compilable, keep the text for the diagnostic" element.
 			alt{S: "#TOK", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
-				r.Node = &bnf.Element{Kind: bnf.KindProse, Text: r.O[0].Src}
+				r.Node = &bnf.Element{
+					Kind: bnf.KindProse, Text: r.O[0].Src, Sp: spanOf(r.O[0]),
+				}
 			}},
 			alt{S: "#NM", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
-				r.Node = &bnf.Element{Kind: bnf.KindRef, Name: r.O[0].Src}
+				r.Node = &bnf.Element{
+					Kind: bnf.KindRef, Name: r.O[0].Src, Sp: spanOf(r.O[0]),
+				}
 			}},
 			alt{S: "#LP", P: "alts", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
 				r.U["grouped"] = true
+				r.U["open"] = r.O[0]
 			}},
 		)...)
 		rs.AddClose(alts(
@@ -637,7 +651,10 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 					if !ok {
 						return
 					}
-					r.Node = &bnf.Element{Kind: bnf.KindGroup, Alts: *as}
+					open, _ := r.U["open"].(*tabnas.Token)
+					r.Node = &bnf.Element{
+						Kind: bnf.KindGroup, Alts: *as, Sp: spanTo(open, closeTok(r)),
+					}
 				},
 			},
 			// Simple atoms already set r.Node in open; pop without consuming.
@@ -730,4 +747,42 @@ func wrapParseError(err error) error {
 		msg = msg[:i]
 	}
 	return &ParseError{Message: "gbnf: " + msg, Cause: err}
+}
+
+// spanOf is the source span of a token, for the IR (bnf.SrcSpan). Every
+// field is copied straight off the token: the compiler stores whatever
+// units the front-end's own engine tokens use, precisely so that no
+// arithmetic — and so no off-by-one — happens at this boundary. Go
+// tokens carry no length, so the end comes from the matched source.
+func spanOf(tkn *tabnas.Token) *bnf.SrcSpan {
+	if tkn == nil {
+		return nil
+	}
+	return &bnf.SrcSpan{
+		S: tkn.SI, E: tkn.SI + len(tkn.Src), R: tkn.RI, C: tkn.CI,
+	}
+}
+
+// spanTo is one span covering two tokens — a group runs from its `(` to
+// its `)`. Falls back to whichever end is known when the other is not.
+func spanTo(from, to *tabnas.Token) *bnf.SrcSpan {
+	a := spanOf(from)
+	b := spanOf(to)
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	return &bnf.SrcSpan{S: a.S, E: b.E, R: a.R, C: a.C}
+}
+
+// closeTok is the first token matched in a rule's CLOSE phase — the `)`
+// of a group. Returns nil when the rule closed without matching one, so
+// a span falls back to its opener.
+func closeTok(r *tabnas.Rule) *tabnas.Token {
+	if 0 < r.CN {
+		return r.C[0]
+	}
+	return nil
 }

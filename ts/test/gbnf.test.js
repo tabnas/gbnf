@@ -9,10 +9,32 @@ const {
   gbnf: gbnfPlugin,
   gbnfConvert,
   toSpec,
-  parseGbnf,
+  parseGbnf: parseGbnfRaw,
   GbnfParseError,
   GbnfCompileError,
 } = require('..')
+
+// Strip source spans from an IR value.
+const noSpans = (v) => {
+  if (Array.isArray(v)) return v.map(noSpans)
+  if (v && 'object' === typeof v) {
+    const o = {}
+    for (const k of Object.keys(v)) {
+      if ('sp' === k) continue
+      o[k] = noSpans(v[k])
+    }
+    return o
+  }
+  return v
+}
+
+// Almost every test in this file compares IR values STRUCTURALLY, and
+// none of them has anything to say about where in the source a node came
+// from. So the file's default view of the parser is span-free; the
+// `source spans` section at the end uses `parseGbnfRaw` and asserts
+// positions the only way worth asserting them — by slicing the source
+// and comparing the text.
+const parseGbnf = (...args) => noSpans(parseGbnfRaw(...args))
 
 // No grammar plugin: GBNF supplies its own grammar via tn.gbnf(...).
 const tn = new Tabnas({ plugins: [gbnfPlugin] })
@@ -807,4 +829,99 @@ describe('gbnf', () => {
 
   })
 
+})
+
+
+// Source spans (plan C5). The front-end records where each element and
+// production came from, so a compile failure carries a range and a tool
+// can underline the offending text.
+//
+// Uses `parseGbnfRaw`, not the span-stripping `parseGbnf` the rest of
+// this file uses. Every assertion slices the ORIGINAL SOURCE with the
+// span and compares the text: an offset pair that is self-consistent
+// but points at the wrong characters would satisfy any assertion about
+// the numbers themselves.
+describe('source spans', () => {
+  const SRC = [
+    'root ::= item',
+    'item ::= "hi" | [a-z] | . | ref | (alt | two)',
+    'ref ::= "r"',
+    'alt ::= "a"',
+    'two ::= "b"',
+  ].join('\n')
+
+  const g = () => parseGbnfRaw(SRC)
+  const text = (sp) => {
+    assert.ok(sp, 'expected a span')
+    return SRC.slice(sp.s, sp.e)
+  }
+  const prod = (name) => {
+    const p = g().productions.find((x) => x.name === name)
+    assert.ok(p, `no production ${name}`)
+    return p
+  }
+
+  it('spans a production with its name', () => {
+    assert.equal(text(prod('item').sp), 'item')
+    assert.equal(prod('item').sp.r, 2, 'row is 1-based, as the engine reports')
+    assert.equal(prod('item').sp.c, 1)
+  })
+
+  it('spans literals, classes, the any-char dot and references', () => {
+    const alts = prod('item').alts
+    assert.equal(text(alts[0][0].sp), '"hi"')
+    assert.equal(text(alts[1][0].sp), '[a-z]')
+    assert.equal(text(alts[2][0].sp), '.')
+    assert.equal(text(alts[3][0].sp), 'ref')
+  })
+
+  it('spans a group from its opening paren to its closing one', () => {
+    const group = prod('item').alts[4][0]
+    assert.equal(group.kind, 'group')
+    assert.equal(text(group.sp), '(alt | two)')
+    assert.equal(text(group.alts[0][0].sp), 'alt')
+    assert.equal(text(group.alts[1][0].sp), 'two')
+  })
+
+  it('ranges the tokenizer-token rejection', () => {
+    // `<tok>` is not part of the IR — the syntax layer builds it so a
+    // grammar containing one is not a *syntax* error, and validation
+    // then rejects it by name. Carrying a span on it is what lets that
+    // rejection point at the offending text rather than only naming the
+    // rule, and it is the diagnostic GBNF authors hit most.
+    const src = 'root ::= item\nitem ::= "a" | <tok>'
+    assert.throws(() => parseGbnfRaw(src), (e) => {
+      assert.equal(e.name, 'GbnfCompileError')
+      assert.equal(e.rule, 'item')
+      assert.ok(e.sp, 'the tokterm rejection carried no range')
+      assert.equal(src.slice(e.sp.s, e.sp.e), '<tok>')
+      return true
+    })
+  })
+
+  it('reports a row and column that agree with the offset', () => {
+    for (const p of g().productions) {
+      const before = SRC.slice(0, p.sp.s)
+      const row = before.split('\n').length
+      const col = p.sp.s - (before.lastIndexOf('\n') + 1) + 1
+      assert.equal(p.sp.r, row, `${p.name}: row disagrees with offset`)
+      assert.equal(p.sp.c, col, `${p.name}: column disagrees with offset`)
+    }
+  })
+
+  it('gives a compile error a range that underlines the offender', () => {
+    const src = 'root ::= item\nitem ::= missing'
+    assert.throws(() => gbnfConvert(src), (e) => {
+      const sp = e.sp || (e.cause && e.cause.sp)
+      assert.ok(sp, 'compile error carried no range')
+      assert.equal(src.slice(sp.s, sp.e), 'missing')
+      assert.equal(sp.r, 2)
+      return true
+    })
+  })
+
+  it('does not change the grammar a spanned parse compiles to', () => {
+    const ok = 'root ::= item\nitem ::= "hi" | (a | b)\na ::= "x"\nb ::= "y"'
+    assert.doesNotMatch(JSON.stringify(gbnfConvert(ok).rule), /"sp"/)
+  })
 })

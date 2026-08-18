@@ -39,11 +39,35 @@ const LIVE = JSON.parse(Fs.readFileSync(
 const tn = new Tabnas({ plugins: [gbnfPlugin] })
 
 // Render a GBNF source and hand back both the text and the reparse.
+// Strip source spans from an IR value.
+const noSpans = (v) => {
+  if (Array.isArray(v)) return v.map(noSpans)
+  if (v && 'object' === typeof v) {
+    const o = {}
+    for (const k of Object.keys(v)) {
+      if ('sp' === k) continue
+      o[k] = noSpans(v[k])
+    }
+    return o
+  }
+  return v
+}
+
+// Render is a fixed point over STRUCTURE, not over layout: `ir2` is
+// parsed from rendered text, which is deliberately formatted
+// differently from the author's original, so the two IRs describe the
+// same grammar at different offsets. Spans are dropped from both sides
+// before comparing — comparing them would be asserting that the
+// renderer reproduces the input's whitespace, which is not what it
+// promises and not what these tests are for.
+//
+// `ir1` keeps its spans in the returned value for any caller that wants
+// them; only the comparison pair is stripped.
 function roundTrip(src) {
   const ir1 = parseGbnf(src)
   const out = renderGbnf(ir1)
   const ir2 = parseGbnf(out)
-  return { ir1, out, ir2 }
+  return { ir1: noSpans(ir1), out, ir2: noSpans(ir2), raw1: ir1 }
 }
 
 function accepts(grammarText, sample) {
