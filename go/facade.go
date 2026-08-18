@@ -98,9 +98,16 @@ func emitSafely(
 ) (spec *tabnas.GrammarSpec, err error) {
 	defer func() {
 		if r := recover(); r != nil {
+			// The panicked value is kept as the cause, not just its
+			// text: the compiler raises the purely-left-recursive
+			// rejection as a *bnf.EmitError so the SPAN survives the
+			// panic, and stringifying here would discard it at the
+			// last step. With the cause attached, `errors.As` recovers
+			// the range on this path exactly as on the return path
+			// below.
 			switch v := r.(type) {
 			case error:
-				err = &CompileError{Message: restamp(v.Error())}
+				err = &CompileError{Message: restamp(v.Error()), Cause: v}
 			case string:
 				err = &CompileError{Message: restamp(v)}
 			default:

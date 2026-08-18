@@ -10,6 +10,7 @@ package gbnf
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -411,5 +412,39 @@ func TestLiveCorpusCompiles(t *testing.T) {
 		if spec.Rule["root"] == nil {
 			t.Errorf("%q compiled without a root rule", c.Name)
 		}
+	}
+}
+
+// The recovered panic must keep the *bnf.EmitError as its cause.
+//
+// The purely-left-recursive rejection is the one diagnostic that
+// reaches a caller through a PANIC rather than a return (see
+// emitSafely), and it is raised as an *EmitError value precisely so
+// the span survives that trip. If the recover rebuilds the message
+// into a CompileError without a Cause, the value is thrown away at the
+// last step: `errors.As` finds nothing, and a tool has a message where
+// every other compile failure gives it a range. This asserts the two
+// paths behave alike.
+func TestRecoveredPanicKeepsEmitErrorCause(t *testing.T) {
+	src := `root ::= root "x"`
+	_, err := Gbnf(src, nil)
+	if err == nil {
+		t.Fatal("expected a purely left-recursive rule to be refused")
+	}
+	var ee *bnf.EmitError
+	if !errors.As(err, &ee) {
+		t.Fatalf("errors.As found no *bnf.EmitError in %#v", err)
+	}
+	if ee.Rule != "root" {
+		t.Errorf("EmitError.Rule = %q, want %q", ee.Rule, "root")
+	}
+	if ee.Sp == nil {
+		t.Fatal("EmitError carried no span")
+	}
+	// Slice the source: numbers that are internally consistent but
+	// point at the wrong characters satisfy any assertion about the
+	// numbers themselves.
+	if got := src[ee.Sp.S:ee.Sp.E]; got != "root" {
+		t.Errorf("span covers %q, want the production name %q", got, "root")
 	}
 }
