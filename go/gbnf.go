@@ -23,4 +23,4 @@ package gbnf
 // VERSION is this module's version. It MUST equal ts/package.json
 // "version": the release orchestrator rewrites both, and the version
 // test fails the build if they drift.
-const VERSION = "0.1.5"
+const VERSION = "0.1.6"
