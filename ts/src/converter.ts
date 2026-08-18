@@ -40,6 +40,7 @@ import { emitGrammarSpec, eliminateLeftRecursion } from '@tabnas/bnf'
 
 import type {
   ConvertOptions,
+  SrcSpan,
   Element,
   Sequence,
   Production,
@@ -61,6 +62,28 @@ type GbnfSequence = Sequence
 type GbnfProduction = Production
 type GbnfGrammar = Grammar
 
+
+// Source span of a token, for the IR (`@tabnas/bnf` SrcSpan). Every
+// field is copied straight off the token: the compiler stores whatever
+// units the front-end's own engine tokens use, precisely so that no
+// arithmetic — and so no off-by-one — happens at this boundary.
+function spanOf(tkn: any): SrcSpan | undefined {
+  if (null == tkn || null == tkn.sI) return undefined
+  const len = null != tkn.len ? tkn.len : (tkn.src ? String(tkn.src).length : 0)
+  return { s: tkn.sI, e: tkn.sI + len, r: tkn.rI, c: tkn.cI }
+}
+
+
+// One span covering two tokens — a group runs from its `(` to its `)`.
+// Falls back to whichever end is known when the other is not.
+function spanTo(from: any, to: any): SrcSpan | undefined {
+  const a = spanOf(from)
+  const b = spanOf(to)
+  if (null == a) return b
+  if (null == b) return a
+  return { s: a.s, e: b.e, r: a.r, c: a.c }
+}
+
 // A tokenizer-token terminal — `<think>`, `<[1000]>`, `!</think>`. These
 // match entries of a sampler's vocabulary, not characters, so a text
 // parser has no faithful semantics for them (see the policy note on
@@ -71,6 +94,7 @@ type TokenTerminal = {
   kind: 'tokterm'
   text: string      // the source text, brackets included
   negated: boolean  // `!<…>` rather than `<…>`
+  sp?: SrcSpan      // where it was written, as on every other element
 }
 
 // What the notation parser actually builds. It is the IR plus the one
@@ -159,7 +183,10 @@ const gbnfRules: Record<
     open: [
       {
         s: '#NM #DEF',
-        a: (r: Rule) => { r.u.name = r.o[0].src as string },
+        a: (r: Rule) => {
+          r.u.name = r.o[0].src as string
+          r.u.nameTkn = r.o[0]
+        },
         p: 'alts',
       },
     ],
@@ -173,7 +200,13 @@ const gbnfRules: Record<
     ],
     bc: (r) => {
       if (r.child && r.child.node !== undefined) {
-        r.node.push({ name: r.u.name, alts: r.child.node })
+        r.node.push({
+          name: r.u.name,
+          alts: r.child.node,
+          // The name, not the body: that is what an outline entry,
+          // go-to-definition and a whole-rule diagnostic want.
+          sp: spanOf(r.u.nameTkn),
+        })
       }
     },
   },
@@ -267,14 +300,16 @@ const gbnfRules: Record<
           // regex, so dropping it would silently accept `"TRUE"` for
           // `"true"`.
           if (literal.length > 0) {
-            r.node = { kind: 'term', literal, caseSensitive: true }
+            r.node = {
+              kind: 'term', literal, caseSensitive: true, sp: spanOf(r.o[0]),
+            }
           }
         },
       },
       {
         s: '#CC',
         a: (r: Rule) => {
-          r.node = decodeCharClass(r.o[0].src as string)
+          r.node = decodeCharClass(r.o[0].src as string, r.o[0])
         },
       },
       {
@@ -286,7 +321,9 @@ const gbnfRules: Record<
         // one UTF-16 unit, so `.` consumes an emoji whole and `.{2}`
         // does not accept a single astral character as two.
         a: (r: Rule) => {
-          r.node = { kind: 'regex', pattern: '[\\s\\S]', flags: 'u' }
+          r.node = {
+            kind: 'regex', pattern: '[\\s\\S]', flags: 'u', sp: spanOf(r.o[0]),
+          }
         },
       },
       {
@@ -297,18 +334,21 @@ const gbnfRules: Record<
             kind: 'tokterm',
             text: src,
             negated: src[0] === '!',
+            sp: spanOf(r.o[0]),
           }
         },
       },
       {
         s: '#NM',
         a: (r: Rule) => {
-          r.node = { kind: 'ref', name: r.o[0].src as string }
+          r.node = {
+            kind: 'ref', name: r.o[0].src as string, sp: spanOf(r.o[0]),
+          }
         },
       },
       {
         s: '#LP',
-        a: (r: Rule) => { r.u.grouped = true },
+        a: (r: Rule) => { r.u.grouped = true; r.u.open = r.o[0] },
         p: 'alts',
       },
     ],
@@ -320,7 +360,9 @@ const gbnfRules: Record<
         s: '#RP',
         c: (r: Rule) => r.u.grouped === true,
         a: (r: Rule) => {
-          r.node = { kind: 'group', alts: r.child.node }
+          r.node = {
+            kind: 'group', alts: r.child.node, sp: spanTo(r.u.open, r.c0),
+          }
         },
       },
       // Simple atoms already set r.node in open; pop without consuming.
@@ -471,10 +513,15 @@ class GbnfParseError extends Error {
 // message names the rule responsible.
 class GbnfCompileError extends Error {
   readonly rule?: string
-  constructor(message: string, rule?: string) {
+  // Where in the grammar source, when the offending IR node knew. Only
+  // ever set from a span the front-end recorded, so it is present
+  // exactly when there is a real position to point at.
+  readonly sp?: SrcSpan
+  constructor(message: string, rule?: string, sp?: SrcSpan) {
     super(message)
     this.name = 'GbnfCompileError'
     this.rule = rule
+    if (null != sp) this.sp = sp
   }
 }
 
@@ -562,6 +609,7 @@ function rejectTokenTerminals(prods: RawProduction[]): void {
         `parser and are not compiled. Remove them, or describe the ` +
         `same text with a string literal or character class.`,
         rule,
+        el.sp,
       )
     }
     if (el.kind === 'group') {
@@ -611,6 +659,7 @@ function requireDefinedRefs(prods: RawProduction[]): void {
           `gbnf: rule '${rule}' references '${el.name}', which is ` +
           `never defined.`,
           rule,
+          el.sp,
         )
       }
     } else if (el.kind === 'group') {
@@ -722,7 +771,7 @@ function decodeString(raw: string): string {
 // `\u{…}` is only a code-point escape in Unicode mode. That is also the
 // one construct with no cross-runtime encoding today — see
 // `doc/known-gaps.md`.
-function decodeCharClass(raw: string): GbnfElement {
+function decodeCharClass(raw: string, tkn?: any): GbnfElement {
   let i = 1
   const end = raw.length - 1
 
@@ -766,6 +815,7 @@ function decodeCharClass(raw: string): GbnfElement {
 
   return {
     kind: 'regex',
+    sp: spanOf(tkn),
     pattern: '[' + (negated ? '^' : '') + parts.join('') + ']',
     // Unicode mode is decided by what the matcher can MATCH, not by
     // what was written in the class. A negated class matches the
