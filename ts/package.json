@@ -35,7 +35,9 @@
     "repo-stage-quick": "npm run build && npm run test && npm stage publish",
     "repo-tag": "REPO_VERSION=`node -e \"console.log(require('./package').version)\"` && echo TAG: ts/v$REPO_VERSION && git commit -a -m v$REPO_VERSION && git push && git tag ts/v$REPO_VERSION && git push origin ts/v$REPO_VERSION;",
     "reset": "npm run clean && npm i && npm run build && npm test",
+    "pretest": "npm run build",
     "test": "node --enable-source-maps --test test/**/*.test.js",
+    "pretest-some": "npm run build",
     "test-some": "node --enable-source-maps --test-name-pattern=\"$npm_config_pattern\" --test test/**/*.test.js",
     "watch": "tsc --build src -w"
   },
