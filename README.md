@@ -9,6 +9,8 @@
 📖 **[tabnas.github.io/gbnf](https://tabnas.github.io/gbnf/)** — what this
 is for, and why you would use it.
 
+Docs, guides, the error reference and the playground: **[tabnas.dev](https://tabnas.dev)**.
+
 GBNF grammar compiler for the
 [tabnas](https://github.com/tabnas/parser) parser. Takes GBNF source —
 the [llama.cpp](https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md)
