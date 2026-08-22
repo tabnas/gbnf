@@ -1,6 +1,6 @@
 {
   "name": "@tabnas/gbnf",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "main": "dist/gbnf.js",
   "type": "commonjs",
   "types": "dist/gbnf.d.ts",
