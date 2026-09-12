@@ -141,7 +141,15 @@ func applyExactLexing(spec *tabnas.GrammarSpec, acceptsEmpty bool) {
 	if spec.Options == nil {
 		spec.Options = &tabnas.Options{}
 	}
-	spec.Options.TokenSet = map[string][]string{"IGNORE": {}}
+	// Add to the map, do not replace it: the compiler puts the
+	// character-class partition's token sets here (a contested class
+	// becomes a set over one-character atoms), and assigning a fresh map
+	// dropped them — leaving every partitioned class referenced by a rule
+	// with nothing to resolve to. Only IGNORE is ours to set.
+	if spec.Options.TokenSet == nil {
+		spec.Options.TokenSet = map[string][]string{}
+	}
+	spec.Options.TokenSet["IGNORE"] = []string{}
 	spec.Options.Space = &tabnas.SpaceOptions{Lex: &off}
 	spec.Options.Line = &tabnas.LineOptions{Lex: &off}
 	spec.Options.Comment = &tabnas.CommentOptions{Lex: &off}
