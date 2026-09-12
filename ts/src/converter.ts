@@ -923,7 +923,13 @@ function applyExactLexing(
   acceptsEmpty: boolean,
 ): GrammarSpec {
   const options = (spec.options ?? {}) as Record<string, any>
-  options.tokenSet = { IGNORE: [] }
+  // Spread, do not replace: the compiler puts the character-class
+  // partition's token sets here (a contested class becomes a set over
+  // one-character atoms), and a bare assignment dropped them — leaving
+  // every partitioned class referenced by a rule with nothing to
+  // resolve to, so its own samples lexed as unexpected characters.
+  // Only IGNORE is ours to set.
+  options.tokenSet = { ...(options.tokenSet ?? {}), IGNORE: [] }
   options.space = { lex: false }
   options.line = { lex: false }
   options.comment = { lex: false }
@@ -1243,6 +1249,24 @@ function markClassesEager(
 }
 
 
+// Clear `eager$` from every class matcher.
+//
+// The compiler marks them all eager itself — that is how its TS emitter
+// was brought level with the Go one, which has flagged every range regex
+// eager all along. Inheriting that wholesale is wrong here: GBNF drops
+// the rule-directed gate only where it has checked that dropping it
+// cannot change which strings parse, and `eagerClasses: false` is a
+// documented opt-out. So the decision is applied in both directions
+// below, rather than only ever being set.
+function clearClassesEager(spec: GrammarSpec): void {
+  const matchTokens =
+    ((spec.options as any)?.match?.token ?? {}) as Record<string, RegExp>
+  for (const name of Object.keys(matchTokens)) {
+    delete (matchTokens[name] as RegExp & { eager$?: boolean }).eager$
+  }
+}
+
+
 // Public entry point: take GBNF source and return a tabnas GrammarSpec.
 //
 // `start` defaults to `root`, GBNF's mandatory start symbol, rather
@@ -1258,7 +1282,9 @@ function gbnf(src: string, opts?: GbnfConvertOptions): GrammarSpec {
     tag: opts?.tag ?? 'gbnf',
   })
   applyExactLexing(spec, derivesEmpty(grammar, start))
-  if (opts?.eagerClasses !== false) markClassesEager(grammar, spec)
+  const eager =
+    opts?.eagerClasses !== false && markClassesEager(grammar, spec)
+  if (!eager) clearClassesEager(spec)
   return spec
 }
 
