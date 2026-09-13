@@ -29,7 +29,7 @@ accepts('1,5')    // => false
 ```
 
 Two cautions. A `false` here means *this compiler* could not parse the
-string — check [known-gaps.md](known-gaps.md) before concluding the
+string; check [known-gaps.md](known-gaps.md) before concluding the
 grammar rejects it. And the empty string is decided at compile time
 rather than by a parse, so `accepts('')` reports whether `root` derives
 the empty string; when it does, `tn.parse('')` returns `undefined`
@@ -49,7 +49,7 @@ npx gbnf-check json.gbnf --text '{"a": 1}'   # does this string match?
 ```
 
 For a tool or agent loop, `--json` swaps the prose for one stable JSON
-document — grammar status, per-sample verdicts with `line`/`column`,
+document: grammar status, per-sample verdicts with `line`/`column`,
 and a `hint` when a rejection is only a trailing newline:
 
 ```bash
@@ -60,7 +60,7 @@ This is the loop that matters when a model *writes* the grammar:
 generate `.gbnf`, run `gbnf-check` on it with known-good and known-bad
 samples, and repair from the reported error before ever loading a
 sampler. See [reference.md](reference.md#command-line-gbnf-check) for
-the full report shape, and keep the two cautions above in mind — they
+the full report shape, and keep the two cautions above in mind; they
 apply to the CLI exactly as much as to `tn.parse()`.
 
 ## Port a grammar file from llama.cpp
@@ -79,8 +79,8 @@ tn.gbnf(Fs.readFileSync('grammars/json.gbnf', 'utf8'))
 ```
 
 Use a **fresh instance per grammar** (`tn.make()`). Installing a grammar
-also installs its lexer settings — the empty ignore set, the disabled
-default matchers, the `lex.empty` decision — and those are instance-wide,
+also installs its lexer settings (the empty ignore set, the disabled
+default matchers, the `lex.empty` decision) and those are instance-wide,
 so a second grammar layered onto the same instance inherits the first
 one's.
 
@@ -108,7 +108,7 @@ b.parse('no').rule  // => 'root'
 
 Many formats are already specified in RFC-grade ABNF. `@tabnas/abnf`
 parses ABNF into the same grammar IR this package renders, so the
-bridge is one line — and the output is a constraint file any
+bridge is one line, and the output is a constraint file any
 GBNF-consuming sampler can load:
 
 ```js
@@ -119,19 +119,19 @@ const gbnfText = renderGbnf(parseAbnf('greet = "hi"\n'))
 gbnfText // => 'root ::= greet\ngreet ::= [hH] [iI]\n'
 ```
 
-Three things to know. GBNF needs a `root`, so one is synthesized to
+Three things follow. GBNF needs a `root`, so one is synthesized to
 reference the first production (pick another with
 `{ start: 'name' }`). ABNF's case-insensitive literals are expanded
 into exactly-equivalent classes (`[hH] [iI]`), because GBNF literals
-are case-sensitive. And anything GBNF cannot express faithfully — a
-grammar leaning on the engine's lexer tokens, a prose element — raises
+are case-sensitive. And anything GBNF cannot express faithfully (a
+grammar leaning on the engine's lexer tokens, a prose element) raises
 `GbnfRenderError` instead of being approximated. Check the result with
 `gbnf-check` (and `llama-gbnf-validator`, for the line-break rules)
 before shipping it.
 
 ## Match case-insensitively
 
-GBNF has no case-insensitive literal — that is an ABNF feature, and it
+GBNF has no case-insensitive literal: that is an ABNF feature, and it
 is the difference most likely to bite when porting a grammar in either
 direction. Spell the alternatives out as character classes:
 
@@ -150,7 +150,7 @@ tn.parse('Yes').src // => 'Yes'
 ## Handle whitespace
 
 Nothing is skipped for you. Declare an explicit whitespace rule and
-thread it through the places whitespace is allowed — the idiom
+thread it through the places whitespace is allowed, the idiom
 llama.cpp's own grammars use:
 
 ```gbnf
@@ -167,8 +167,8 @@ deterministic parser too.
 ## Test one rule instead of the whole grammar
 
 `start` picks a different entry point, which is useful when you are
-debugging a sub-rule. `root` must still be defined — that is part of the
-notation — but it does not have to be where the parse begins.
+debugging a sub-rule. `root` must still be defined, since that is part of the
+notation, but it does not have to be where the parse begins.
 
 ```js
 const { Tabnas } = require('@tabnas/parser')
@@ -187,11 +187,11 @@ tn.parse('abc').rule // => 'item'
 
 Three things can go wrong, and the class tells you which.
 
-**`GbnfParseError`** — the text is not GBNF. Carries `.line` and
+**`GbnfParseError`** means the text is not GBNF. Carries `.line` and
 `.column` where the underlying parse failed, and `.cause` with the
 engine's own error.
 
-**`GbnfCompileError`** — the text *is* GBNF, but does not describe a
+**`GbnfCompileError`** means the text *is* GBNF, but does not describe a
 grammar this compiler can build. Carries `.rule`, the rule responsible.
 Three causes:
 
@@ -219,7 +219,7 @@ no faithful text semantics. See
 ## Inspect the intermediate representation
 
 `parseGbnf` stops after the notation layer and hands back the grammar
-IR — the same `Grammar` that `@tabnas/bnf` compiles. Useful for writing
+IR, the same `Grammar` that `@tabnas/bnf` compiles. Useful for writing
 your own analysis, or for seeing exactly how a construct lowered.
 
 ```js
@@ -233,17 +233,17 @@ g.productions[0].alts[0][0].kind   // => 'plus'
 ## When a grammar compiles but will not parse
 
 Compilation checks the notation; parsing exercises the engine, and that
-is where the remaining limits live. Overlapping terminals — classes
+is where the remaining limits live. Overlapping terminals (classes
 that overlap each other, a literal's first character inside a class,
 keywords shadowed by identifier classes, alternatives sharing an
-unbounded prefix — are handled: the engine renegotiates token cuts per
+unbounded prefix) are handled: the engine renegotiates token cuts per
 alternative and the compiler emits exit guards, keyword guards and
 left-factored helpers
 ([known-gaps.md](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing--resolved)).
 What remains:
 
 1. **Ambiguity that needs backtracking.** If the grammar must backtrack
-   over an optional to succeed (`[a-h]? [1-8]? [a-h] [1-8]` — chess's
+   over an optional to succeed (`[a-h]? [1-8]? [a-h] [1-8]`, chess's
    `Nf3`), no lexer tuning helps: the engine runs one rule stack and
    commits to an optional as soon as it matches.
 2. **An identifier exactly equal to a keyword**, in a position where
@@ -253,4 +253,4 @@ What remains:
 
 Both shapes still constrain a sampler correctly; they just cannot be
 validated offline here. If a parse fails and neither applies, that is a
-bug — report it with the grammar and the input.
+bug; report it with the grammar and the input.
