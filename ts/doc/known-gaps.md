@@ -212,10 +212,10 @@ The engine special-cases `''` before any rule runs: it returns
 No grammar rule ever sees the empty input.
 
 Whether the empty string is in the language is a property of the
-grammar, so the front-end settles it during compilation — it walks the
-IR for a derivation of the empty string from `root` and emits
-`lex: { empty: … }` to match. `root ::= "x"*` accepts `''`; `root ::=
-"x"` rejects it.
+grammar, so it is settled during compilation rather than by a parse.
+`@tabnas/bnf` does the settling: it reads the start rule's nullability
+off the IR and emits `lex: { empty: … }` to match. `root ::= "x"*`
+accepts `''`; `root ::= "x"` rejects it.
 
 The one visible consequence: an accepted empty input parses to
 `undefined` rather than to a `{rule, src, kids}` node, because the

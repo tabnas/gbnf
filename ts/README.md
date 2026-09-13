@@ -52,9 +52,9 @@ rejected // => true
 ```
 
 Whether the *empty* input is in the language is settled at compile time,
-because the engine short-circuits `''` before any rule runs: the
-compiler walks the IR for a derivation of the empty string from `root`
-and emits `lex: { empty: … }` to match.
+because the engine short-circuits `''` before any rule runs: the shared
+compiler `@tabnas/bnf` reads the start rule's nullability off the IR and
+emits `lex: { empty: … }` to match.
 
 ```js
 const { gbnfConvert } = require('@tabnas/gbnf')
