@@ -122,7 +122,7 @@ gbnfText // => 'root ::= greet\ngreet ::= [hH] [iI]\n'
 Three things follow. GBNF needs a `root`, so one is synthesized to
 reference the first production (pick another with
 `{ start: 'name' }`). ABNF's case-insensitive literals are expanded
-into exactly-equivalent classes (`[hH] [iI]`), because GBNF literals
+into exactly equivalent classes (`[hH] [iI]`), because GBNF literals
 are case-sensitive. And anything GBNF cannot express faithfully (a
 grammar leaning on the engine's lexer tokens, a prose element) raises
 `GbnfRenderError` instead of being approximated. Check the result with
