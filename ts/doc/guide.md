@@ -239,7 +239,7 @@ keywords shadowed by identifier classes, alternatives sharing an
 unbounded prefix) are handled: the engine renegotiates token cuts per
 alternative and the compiler emits exit guards, keyword guards and
 left-factored helpers
-([known-gaps.md](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing--resolved)).
+([known-gaps.md](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing-resolved)).
 What remains:
 
 1. **Ambiguity that needs backtracking.** If the grammar must backtrack

@@ -258,7 +258,7 @@ all, so the rule-directed gate is dropped entirely and every character
 has exactly one possible token (`eagerClasses`). Together these resolve
 the whole llama.cpp corpus; what remains genuinely out of reach is
 ambiguity that needs backtracking, which is a different problem; see
-[known-gaps.md §2 and §3](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing--resolved).
+[known-gaps.md §2 and §3](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing-resolved).
 
 ## Why tokenizer-token terminals are refused
 
