@@ -171,10 +171,13 @@ a close-state alt land in the rule's close-token array.
   one meaning inside a class and needs no further quoting. Same reason
   string literals are lexed raw and decoded here rather than by the
   engine's string matcher.
-- **`lex.empty` is computed, not fixed.** The engine short-circuits `''`
-  before any rule runs, so `derivesEmpty` walks the IR and sets
-  `lex: { empty: … }` accordingly. `root ::= "x"*` accepts the empty
-  input; `root ::= "x"` does not.
+- **`lex.empty` is computed, not fixed, and not by this package.** The
+  engine short-circuits `''` before any rule runs, so the decision is
+  made at compile time — by `@tabnas/bnf`, from the start rule's
+  nullability, since that is a property of the IR rather than of this
+  notation. `root ::= "x"*` accepts the empty input; `root ::= "x"` does
+  not. `applyExactLexing` must therefore ADD to `options.lex` rather than
+  replace it, or the answer is discarded on the way out.
 - **`eagerClasses` is conditional and the conditions are checked.** When
   a grammar's classes are pairwise disjoint AND no class holds the first
   character of any literal, `markClassesEager` drops the token-column

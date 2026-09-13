@@ -286,9 +286,8 @@ engine behave that way. They are applied to the instance by
 
 The engine special-cases `''` before any rule runs: it returns
 `lex.emptyResult` (`undefined`) when `lex.empty` is set, and throws when
-it is not. No rule ever sees the empty input, so the compiler decides at
-build time — it walks the IR for a derivation of the empty string from
-the start rule.
+it is not. No rule ever sees the empty input, so the decision is made at
+build time by `@tabnas/bnf`, from the start rule's nullability.
 
 ```js
 const { gbnfConvert } = require('@tabnas/gbnf')
