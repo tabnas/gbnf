@@ -912,16 +912,7 @@ function repeat(
 // (its character classes) — so an unmatched character is a lex error
 // rather than a silently skipped one, and `tn.parse()` is a faithful
 // acceptance test rather than a lenient one.
-// The empty input is the one case the rules never see: the engine
-// short-circuits `''` before the parse loop starts, returning
-// `lex.emptyResult` when `lex.empty` is set and throwing when it is
-// not. Whether the empty string is in the language is a property of the
-// grammar, so decide it here — `root ::= "x"*` accepts it and
-// `root ::= "x"` must not.
-function applyExactLexing(
-  spec: GrammarSpec,
-  acceptsEmpty: boolean,
-): GrammarSpec {
+function applyExactLexing(spec: GrammarSpec): GrammarSpec {
   const options = (spec.options ?? {}) as Record<string, any>
   // Spread, do not replace: the compiler puts the character-class
   // partition's token sets here (a contested class becomes a set over
@@ -944,7 +935,12 @@ function applyExactLexing(
   // an alternate re-cut a token under its own tin list instead of
   // failing on the first cut's identity.
   requireRelexSupport()
-  options.lex = { empty: acceptsEmpty, relex: true }
+  // Spread, for the same reason `tokenSet` above is: `lex.empty` is the
+  // compiler's to set, from the start rule's nullability, and replacing
+  // the object dropped it. That is the defect of #23 one field over —
+  // the compiler answers, this front-end discards the answer — so it is
+  // worth saying twice.
+  options.lex = { ...(options.lex ?? {}), relex: true }
   spec.options = options as GrammarSpec['options']
   return spec
 }
@@ -985,52 +981,6 @@ function requireRelexSupport(): void {
   }
 }
 
-
-// Can the start rule derive the empty string? Walked over the parsed
-// IR — before `emitGrammarSpec` desugars it — because the IR still says
-// `star`/`opt`/`rep` outright, where the emitted spec has already
-// turned them into mutually-referring helper rules.
-//
-// The `seen` set makes a recursive rule (`a ::= "x" a | ""`) terminate;
-// a rule already on the stack contributes nothing new, so treating it
-// as non-nullable is both safe and the least-fixed-point answer.
-function derivesEmpty(grammar: GbnfGrammar, start: string): boolean {
-  const byName = new Map(grammar.productions.map((p) => [p.name, p]))
-  const seen = new Set<string>()
-
-  const elementEmpty = (el: GbnfElement): boolean => {
-    switch (el.kind) {
-      case 'star':
-      case 'opt':
-        return true
-      case 'plus':
-        return elementEmpty(el.inner)
-      case 'rep':
-        return el.min === 0 || elementEmpty(el.inner)
-      case 'group':
-        return el.alts.some((alt) => alt.every(elementEmpty))
-      case 'ref':
-        return ruleEmpty(el.name)
-      default:
-        // term / regex / token / prose all consume at least one
-        // character. (An empty literal never reaches the IR — `atom`
-        // drops it.)
-        return false
-    }
-  }
-
-  const ruleEmpty = (name: string): boolean => {
-    if (seen.has(name)) return false
-    const prod = byName.get(name)
-    if (!prod) return false
-    seen.add(name)
-    const result = prod.alts.some((alt) => alt.every(elementEmpty))
-    seen.delete(name)
-    return result
-  }
-
-  return ruleEmpty(start)
-}
 
 
 // ---- Eager character classes ---------------------------------------
@@ -1281,7 +1231,7 @@ function gbnf(src: string, opts?: GbnfConvertOptions): GrammarSpec {
     start,
     tag: opts?.tag ?? 'gbnf',
   })
-  applyExactLexing(spec, derivesEmpty(grammar, start))
+  applyExactLexing(spec)
   const eager =
     opts?.eagerClasses !== false && markClassesEager(grammar, spec)
   if (!eager) clearClassesEager(spec)
