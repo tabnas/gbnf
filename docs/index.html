@@ -7,8 +7,8 @@
 <meta name="description" content="Check text against a llama.cpp GBNF grammar offline, without a model. A library and CLI for Python, TypeScript and Go, so a grammar can be unit-tested, gated in CI, and repaired in a loop. ">
 
 <style>
-  /* The tabnas palette — deep monastery green, illuminated gold, warm
-     parchment — taken from tabnas.dev's design tokens, matching
+  /* The tabnas palette (deep monastery green, illuminated gold, warm
+     parchment) taken from tabnas.dev's design tokens, matching
      tabnas.github.io/chess. The display and heading faces there are
      webfonts; this page is deliberately one file and no external
      requests, so it uses their documented fallbacks instead. */
@@ -655,7 +655,8 @@ tn.parse(<span class="y">'{"a": 1}'</span>)  <span class="c">// => the AST</span
   pass. Exactly one sample is recorded as an expected failure:
   <code>chess.gbnf</code> with <code>Nf3</code>, which needs backtracking.
   If it ever starts working the suite goes <em>red</em>, because an
-  expected failure that quietly turns into a pass is a documentation bug.
+  expected failure that turns into a pass with nothing said is a
+  documentation bug.
 </p>
 
 <h2>What it won't do</h2>
@@ -692,7 +693,7 @@ tn.parse(<span class="y">'{"a": 1}'</span>)  <span class="c">// => the AST</span
     mean depends on a model's tokenizer, and an offline checker hasn't
     got one. They parse, so the error can name the rule, and then
     compilation fails rather than guessing they were literal text and
-    quietly changing the accepted language.
+    changing the accepted language with nothing said.
   </li>
   <li>
     <strong>The Python package isn't on PyPI yet.</strong> There's no
@@ -758,7 +759,7 @@ PYTHONPATH=$PWD/py python3 -c <span class="y">'import gbnf; print(gbnf.version()
 </footer>
 
 <!-- The demo. A sibling file, loaded relatively, exactly as
-     tabnas.github.io/chess loads chess-view.js — no third-party host, so
+     tabnas.github.io/chess loads chess-view.js: no third-party host, so
      the page still makes no external requests. Built by
      `npm run build-demo` in ts/ and committed, because Pages serves docs/
      as-is with no build step. -->

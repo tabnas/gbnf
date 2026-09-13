@@ -6,15 +6,15 @@
 [![tabnas standard](https://tabnas.github.io/status/badges/gbnf-standard.svg)](https://tabnas.github.io/status/)
 <!-- /tabnas-badges -->
 
-📖 **[tabnas.github.io/gbnf](https://tabnas.github.io/gbnf/)** — what this
+**[tabnas.github.io/gbnf](https://tabnas.github.io/gbnf/)**: what this
 is for, and why you would use it.
 
 Docs, guides, the error reference and the playground: **[tabnas.dev](https://tabnas.dev)**.
 
 GBNF grammar compiler for the
-[tabnas](https://github.com/tabnas/parser) parser. Takes GBNF source —
-the [llama.cpp](https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md)
-dialect, `::=` and `|`, mandatory `root` — and emits a tabnas
+[tabnas](https://github.com/tabnas/parser) parser. Takes GBNF source (the
+[llama.cpp](https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md)
+dialect: `::=` and `|`, mandatory `root`) and emits a tabnas
 `GrammarSpec`. Installed on an engine, the spec parses inputs in that
 grammar and builds a `{rule, src, kids}` AST.
 
@@ -23,12 +23,12 @@ grammar and builds a `{rule, src, kids}` AST.
 SGLang), KoboldCpp, LocalAI and node-llama-cpp all take a `.gbnf` file
 and mask the sampler so the model can only emit output the grammar
 accepts. What none of them give you is a way to answer *"does this
-string match my grammar?"* without loading a model. That question — the
-most-asked one around GBNF — is what this package answers: compile the
+string match the grammar?"* without loading a model. That question, the
+most-asked one around GBNF, is what this package answers: compile the
 grammar once, then parse candidate strings against it, offline, in
-milliseconds. The full account — why the sampler ecosystem leaves the
+milliseconds. The full account (why the sampler ecosystem leaves the
 question unanswered, and what offline validation changes for grammar
-test loops, CI, and AI agents that generate grammars — is in
+test loops, CI, and AI agents that generate grammars) is in
 [`ts/doc/concepts.md`](ts/doc/concepts.md#what-gbnf-is-for).
 
 ```bash
@@ -39,7 +39,7 @@ npm install @tabnas/parser @tabnas/bnf @tabnas/gbnf
 
 A grammar is a set of **rules**, `name ::= definition`. Alternatives are
 separated by `|`, terminals are double-quoted strings, and the rule
-named `root` is the start symbol — the whole input must match it.
+named `root` is the start symbol, and the whole input must match it.
 
 ```js
 const { Tabnas } = require('@tabnas/parser')
@@ -53,10 +53,10 @@ tn.parse('hi') // => ({ rule: 'root', src: 'hi', kids: [] })
 
 Every rule that matches produces one AST node with three fields:
 
-- **`rule`** — the rule's name, so you can navigate the tree by the names
+- **`rule`**. The rule's name, so you can walk the tree by the names
   you wrote.
-- **`src`** — the source text the rule matched.
-- **`kids`** — child nodes, one per sub-rule the rule referenced.
+- **`src`**. The source text the rule matched.
+- **`kids`**. Child nodes, one per sub-rule the rule referenced.
 
 ## Sequences and sub-rules
 
@@ -84,7 +84,7 @@ Two things to notice.
 
 `out.src` is `'hello world'`, spaces and all. **GBNF is scannerless**:
 the grammar describes every character, so the space between `greet` and
-`name` is there because the grammar asked for it. Nothing is skipped —
+`name` is there because the grammar asked for it. Nothing is skipped:
 `tn.gbnf()` installs an empty ignore set and switches off the engine's
 default JSON-shaped matchers, so `tn.parse()` is a faithful acceptance
 test rather than a lenient one. Drop the `" "` from the grammar and
@@ -97,7 +97,7 @@ it compiles to a named lexer token (`greet ::= "hello"` becomes
 
 ## Terminals
 
-**String literals are case-SENSITIVE** — the opposite of ABNF's default,
+**String literals are case-SENSITIVE**, the opposite of ABNF's default,
 and the single most common way to get a GBNF port subtly wrong:
 
 ```js
@@ -116,7 +116,7 @@ rejected // => true
 
 Inside a literal, the escapes are `\n`, `\r`, `\t`, `\\`, `\"`, `\[`,
 `\]`, `\xXX`, `\uXXXX` and `\UXXXXXXXX`. Anything else is an error, not
-a character copied through — an unknown escape silently changing the
+a character copied through, because an unknown escape silently changing the
 accepted language is exactly the failure an offline validator exists to
 prevent.
 
@@ -164,7 +164,7 @@ sampling anti-pattern.
 ## The `root` rule is mandatory
 
 GBNF's start symbol is always `root`, and a grammar without one does not
-compile — llama.cpp says "grammar does not contain a 'root' symbol", and
+compile. llama.cpp says "grammar does not contain a 'root' symbol", and
 so does this:
 
 ```js
@@ -180,7 +180,7 @@ err.name // => 'GbnfCompileError'
 
 Two error classes, and the difference between them matters:
 `GbnfParseError` means the text is not GBNF; `GbnfCompileError` means it
-is GBNF but does not describe a grammar this compiler can build — no
+is GBNF but does not describe a grammar this compiler can build: no
 `root`, a reference to a rule that is never defined, or a tokenizer-token
 terminal.
 
@@ -188,8 +188,8 @@ terminal.
 
 `<think>`, `<[1000]>` and `!</think>` match entries of a **sampler's
 vocabulary**, not characters. A text parser has no tokenizer, so there
-is no faithful semantics to implement. They parse — a grammar containing
-one is not a *syntax* error — and are then rejected by name:
+is no faithful semantics to implement. They parse (a grammar containing
+one is not a *syntax* error) and are then rejected by name:
 
 ```js
 const { Tabnas } = require('@tabnas/parser')
@@ -210,7 +210,7 @@ which is the one thing this tool must never do.
 ## The validator CLI
 
 The most-asked question has a command: `gbnf-check`, installed with the
-package. Compile a grammar, check samples, read the exit code — `0` all
+package. Compile a grammar, check samples, read the exit code: `0` all
 accepted, `1` something rejected, `2` the grammar does not compile,
 `3` usage error.
 
@@ -221,9 +221,9 @@ npx gbnf-check json.gbnf --text '{"a": 1}'   # does this string match?
 npx gbnf-check json.gbnf --text '{,}' --json # stable JSON, for tooling
 ```
 
-`--json` emits one machine-readable document — per-sample verdicts,
+`--json` emits one machine-readable document (per-sample verdicts,
 error positions, and a hint when a rejection is only a trailing
-newline — which makes the generate → check → repair loop scriptable for
+newline) which makes the generate → check → repair loop scriptable for
 AI agents that write grammars. Full contract in
 [`ts/doc/reference.md`](ts/doc/reference.md#command-line-gbnf-check).
 
@@ -231,7 +231,7 @@ AI agents that write grammars. Full contract in
 
 The notation arrow runs both ways: `renderGbnf` writes a grammar IR
 back out as GBNF text, and `parseGbnf(renderGbnf(g))` reproduces the
-IR exactly — a fixed point graded over both conformance corpora.
+IR exactly: a fixed point graded over both conformance corpora.
 Because [`@tabnas/abnf`](https://github.com/tabnas/abnf) parses into
 the same IR, the pair is an **ABNF → GBNF bridge**: any grammar a
 sibling front-end reads becomes a `.gbnf` file a sampler can consume.
@@ -252,30 +252,30 @@ never approximated.
 ## Conformance
 
 The corpus is llama.cpp's own `grammars/` directory, copied verbatim
-into [`test/corpus/`](test/corpus/) — `json.gbnf`, `json_arr.gbnf`,
+into [`test/corpus/`](test/corpus/): `json.gbnf`, `json_arr.gbnf`,
 `arithmetic.gbnf`, `c.gbnf`, `chess.gbnf`, `english.gbnf`,
 `japanese.gbnf`, `list.gbnf`. All eight **compile**, all eight accept
 real input, and all eight reject near-miss invalid input:
 `ts/test/corpus.test.js` grades both directions.
 
 A second corpus in [`test/live/`](test/live/) holds the 70 expected
-outputs of llama.cpp's JSON-schema-to-grammar converter — the shape
+outputs of llama.cpp's JSON-schema-to-grammar converter, the shape
 tools actually feed a sampler. All 70 compile, and every one is graded
-in both directions — accepts valid JSON, rejects near-miss invalid.
+in both directions: accepts valid JSON, rejects near-miss invalid.
 
 One sample remains out of reach: chess's `Nf3`, whose stacked optional
 prefixes need backtracking. It is asserted as an expected failure, so
 if it starts working the suite goes red. The mechanism, and everything
 that used to be on this list, is written up in
-[`ts/doc/known-gaps.md`](ts/doc/known-gaps.md) — read that before
+[`ts/doc/known-gaps.md`](ts/doc/known-gaps.md); read that before
 trusting a "this grammar does not parse" result.
 
 ## How it fits together
 
 `@tabnas/gbnf` parses no grammar of its own beyond GBNF's syntax. The
-compilation itself — desugaring repetition into helper rules,
+compilation itself (desugaring repetition into helper rules,
 eliminating left recursion, probe dispatch, literal lifting, token
-allocation, first-set analysis — lives in
+allocation, first-set analysis) lives in
 [`@tabnas/bnf`](https://github.com/tabnas/bnf) and is shared with
 [`@tabnas/abnf`](https://github.com/tabnas/abnf) and
 [`@tabnas/ebnf`](https://github.com/tabnas/ebnf):
@@ -284,14 +284,14 @@ allocation, first-set analysis — lives in
 GBNF text ──parseGbnf──▶ Grammar IR ──emitGrammarSpec──▶ GrammarSpec
 ```
 
-This package owns the first arrow — in both directions, `parseGbnf`
-in and `renderGbnf` back out — plus the lexer settings the second
+This package owns the first arrow (in both directions, `parseGbnf`
+in and `renderGbnf` back out) plus the lexer settings the second
 arrow's output needs to behave scannerlessly.
 
 | Path | Description |
 |---|---|
 | [`ts/`](ts/) | TypeScript / JavaScript (`@tabnas/gbnf`). Canonical. |
-| [`go/`](go/) | The Go port of the front-end. Reads `.gbnf` text, compiles the whole corpus, and grades accept/reject on all eight grammars — agreeing with TypeScript in both directions. See [`go/README.md`](go/README.md). |
+| [`go/`](go/) | The Go port of the front-end. Reads `.gbnf` text, compiles the whole corpus, and grades accept/reject on all eight grammars, agreeing with TypeScript in both directions. See [`go/README.md`](go/README.md). |
 
 ## Documentation
 

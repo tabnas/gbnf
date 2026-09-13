@@ -19,8 +19,8 @@ The dialect implemented is llama.cpp's `grammars/README.md` at commit
 model's tokenizer, so the same grammar means different things on
 different models, and a text parser has no tokenizer at all.
 
-The syntax layer parses them — a grammar containing one is not a *syntax*
-error — and a validation pass then rejects it with a `GbnfCompileError`
+The syntax layer parses them (a grammar containing one is not a *syntax*
+error) and a validation pass then rejects it with a `GbnfCompileError`
 naming the rule:
 
 ```
@@ -40,10 +40,10 @@ could be added later; it would have to be off by default.
 
 ---
 
-## 2. Overlapping terminals and rule-directed lexing — resolved
+## 2. Overlapping terminals and rule-directed lexing: resolved
 
 This was the big one. The engine is a **tokeniser plus a push-down
-parser**, and GBNF is **scannerless** — its grammar describes the input
+parser**, and GBNF is **scannerless**: its grammar describes the input
 one character at a time, with no lexical level at all. When several
 terminals can claim the same character (`[a-z0-9_]`, `[0-9]`, `[ \t\n]`
 and the literal `"\n"` all live at the same positions in
@@ -64,15 +64,15 @@ inert where it is not needed:
   renegotiation can only turn failed alternatives into matches.
 - **FOLLOW and FOLLOW₂ guards** (`@tabnas/bnf`). A repetition's
   terminating alternative names its FOLLOW tokens so the lexer offers
-  them at the loop exit, and a *contested* repetition — one whose
-  repeated class covers a follow token's characters — additionally gets
+  them at the loop exit, and a *contested* repetition (one whose
+  repeated class covers a follow token's characters) additionally gets
   2-token exit guards ordered before the continue alternatives
   (`ws ::= [ \t\n]*` before the literal `"\n"` is the canonical case).
 - **Keyword-shadow guards** (`@tabnas/bnf`). A literal-keyword
   alternative contested by a character-class alternative (`"while" …`
   next to `identifier …` in c.gbnf's `statement`) gets 2-token guards
-  — the keyword plus a token only the keyword alternative can follow it
-  with — placed ahead of the class alternative, while its bare 1-token
+  (the keyword plus a token only the keyword alternative can follow it
+  with) placed ahead of the class alternative, while its bare 1-token
   entry drops behind, so `while(x<1)…` picks the keyword statement and
   `whilex = 1;` still parses as an identifier.
 - **Left factoring** (`@tabnas/bnf`). Alternatives sharing a prefix no
@@ -87,7 +87,7 @@ fail, never succeed spuriously.
 
 When a grammar's classes are provably unambiguous the front-end also
 drops the rule-directed gate entirely (every class matcher is flagged
-`eager$` — tokenisation independent of parse state). Two conditions are
+`eager$`, tokenisation independent of parse state). Two conditions are
 checked over the whole grammar: the classes are pairwise disjoint, and
 no class contains the first character of any string literal.
 `japanese.gbnf` qualifies; `arithmetic.gbnf` does not, and relies on
@@ -95,8 +95,8 @@ negotiated lexing instead. Pass `{ eagerClasses: false }` to turn the
 eager mitigation off.
 
 **Status:** resolved for the whole corpus. All eight llama.cpp grammars
-compile, accept their own valid samples — keyword statements, funcCall
-expressions and keyword-prefixed identifiers included — and reject
+compile, accept their own valid samples (keyword statements, funcCall
+expressions and keyword-prefixed identifiers included) and reject
 near-miss invalid ones (`ts/test/corpus.test.js` pins both directions).
 The one construct still out of reach is §3's, which is a different
 class of problem.
@@ -126,14 +126,14 @@ nonpawn ::= [NBKQR] [a-h]? [1-8]? "x"? [a-h] [1-8]
 `Nf3` needs both optionals to be *skipped* so that `f` and `3` land on
 the final `[a-h] [1-8]`. That is a backtracking decision; the engine
 commits to the first optional as soon as `f` matches, and then fails.
-Pawn moves, castling, captures (`Nxe4` — the `x` disambiguates) and
+Pawn moves, castling, captures (`Nxe4`, where the `x` disambiguates) and
 promotions in the same grammar parse fine, and the corpus suite pins
 `Nf3` as the one expected failure.
 
 **Status:** inherent. The probe/rewind machinery in `@tabnas/bnf` widens
 the deterministic subset for one specific shape (an optional prefix
 disambiguated by a single following token), not for general
-backtracking. §2's negotiated lexing does not help here either — the
+backtracking. §2's negotiated lexing does not help here either: the
 ambiguity is in which grammar *positions* consume the characters, not
 in which tokens they are.
 
@@ -180,8 +180,8 @@ form the Go runtime can load.
 **Status:** open, and the one place GBNF support may need an engine-side
 change rather than a front-end one. Either the front-end expands astral
 ranges into surrogate-pair alternations, or the runtimes agree on a
-flag-translation convention. BMP classes — everything the llama.cpp
-corpus uses, including `japanese.gbnf`'s CJK blocks — are unaffected.
+flag-translation convention. BMP classes (everything the llama.cpp
+corpus uses, including `japanese.gbnf`'s CJK blocks) are unaffected.
 
 **Which matchers run in `u` mode**, since it is not only the classes
 that spell out an astral code point. The rule is that Unicode mode
@@ -198,8 +198,8 @@ The last two were emitted without `u` until this was corrected, so `.`
 consumed one UTF-16 surrogate of `😀` rather than the whole character,
 and `.{2}` accepted a single astral character as two. GBNF terminals are
 Unicode code points by definition, so that was simply wrong. It went
-unnoticed because `japanese.gbnf` — the only non-ASCII grammar in the
-corpus — is entirely BMP. Note this interacts with the Go gap above: a
+unnoticed because `japanese.gbnf` (the only non-ASCII grammar in the
+corpus) is entirely BMP. Note this interacts with the Go gap above: a
 negated class now carries `u`, so `[^\n]` joins the astral classes in
 having no serialisable form the Go runtime can load today.
 
@@ -240,7 +240,7 @@ Worth knowing if you are using `tn.parse()` as a validator.
   reports "Undefined rule identifier" too. The check has to run before
   the shared compiler sees the grammar, because `@tabnas/bnf` maps an
   undefined `TX` / `NR` / `ST` / `VL` reference onto the engine's own
-  lexer tokens — right for ABNF, wrong for GBNF, where those are
+  lexer tokens: right for ABNF, wrong for GBNF, where those are
   ordinary rule names.
 - **`[]` is an error.** llama.cpp builds an empty alternate from it;
   here it is rejected, because a class that matches nothing is

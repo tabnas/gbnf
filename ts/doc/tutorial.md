@@ -13,13 +13,13 @@ Why you would write a GBNF grammar at all: it is the notation for
 **constrained decoding**. A `.gbnf` file makes a sampler mask every
 token that would step outside the grammar, so a language model can
 only emit strings the grammar accepts. This package supplies the
-offline half of that workflow — "does this string match my grammar?" —
+offline half of that workflow ("does this string match the grammar?")
 with no model in the loop. The full story is in
 [concepts.md](concepts.md#what-gbnf-is-for).
 
 > Two dialect notes up front, because both are easy to trip over if you
 > have written ABNF. GBNF defines a rule with `::=` and separates
-> alternatives with `|`. And its string literals are **case-sensitive** —
+> alternatives with `|`. And its string literals are **case-sensitive**:
 > `"true"` does not match `TRUE`.
 
 ## Step 0: install
@@ -53,16 +53,16 @@ tn.parse('no').rule  // => 'root'
 `.rule` field is the name of the rule that matched.
 
 The rule has to be called `root`. GBNF's start symbol is always `root`,
-and the whole input must match it — a grammar without one does not
+and the whole input must match it, and a grammar without one does not
 compile.
 
 ## Step 2: look at the whole tree
 
 Every rule produces a `{rule, src, kids}` node:
 
-- `rule` — the grammar rule's name.
-- `src` — the source text this rule matched.
-- `kids` — child nodes, one per *referenced* sub-rule.
+- `rule`. The grammar rule's name.
+- `src`. The source text this rule matched.
+- `kids`. Child nodes, one per *referenced* sub-rule.
 
 ```js
 const { Tabnas } = require('@tabnas/parser')
@@ -74,7 +74,7 @@ tn.gbnf(`root ::= "yes" | "no"`)
 tn.parse('yes') // => ({ rule: 'root', src: 'yes', kids: [] })
 ```
 
-`root` matched only a literal, so it has no children — `kids` is empty.
+`root` matched only a literal, so it has no children: `kids` is empty.
 
 ## Step 3: sequences, sub-rules, and character classes
 
@@ -97,7 +97,7 @@ tn.parse('xfoo=42') // => ({ rule: 'root', src: 'xfoo=42', kids: [{ rule: 'name'
 
 Two things to notice:
 
-- `name` and `value` appear as `kids` — referenced rules become child
+- `name` and `value` appear as `kids`. Referenced rules become child
   nodes.
 - `[a-z]+` is a **character class** followed by the postfix `+`, "one or
   more". GBNF has no built-in rule library: unlike ABNF's `ALPHA` and
@@ -105,7 +105,7 @@ Two things to notice:
 
 ## Step 4: whitespace is yours to declare
 
-GBNF is scannerless — the grammar accounts for every character. Nothing
+GBNF is scannerless: the grammar accounts for every character. Nothing
 is skipped for you, so a space in the input only parses if the grammar
 asked for one:
 
@@ -179,11 +179,11 @@ still get your own rule's node back from `parse`.
 
 ## Where to go next
 
-- **[guide.md](guide.md)** — recipes for real tasks: validating
+- **[guide.md](guide.md)**. Recipes for real tasks: validating
   candidate strings, porting a llama.cpp grammar, reading a compile
   error.
-- **[reference.md](reference.md)** — the exact API and the GBNF syntax
+- **[reference.md](reference.md)**. The exact API and the GBNF syntax
   supported.
-- **[concepts.md](concepts.md)** — how the compiler works and why.
-- **[known-gaps.md](known-gaps.md)** — read this before concluding that
+- **[concepts.md](concepts.md)**. How the compiler works and why.
+- **[known-gaps.md](known-gaps.md)**. Read this before concluding that
   a grammar "does not work".

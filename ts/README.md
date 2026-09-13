@@ -5,10 +5,10 @@ GBNF grammar compiler for the
 
 Takes GBNF source (the
 [llama.cpp](https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md)
-dialect — `::=` and `|`, case-sensitive literals, a mandatory `root`)
+dialect: `::=` and `|`, case-sensitive literals, a mandatory `root`)
 and emits a tabnas `GrammarSpec`. Installed on an engine, the spec
-parses inputs in that grammar and builds a `{rule, src, kids}` AST — so
-you can answer "does this string match my grammar?" without loading a
+parses inputs in that grammar and builds a `{rule, src, kids}` AST, so
+you can answer "does this string match the grammar?" without loading a
 model.
 
 ## Install
@@ -33,7 +33,7 @@ tn.parse('hi') // => ({ rule: 'root', src: 'hi', kids: [] })
 
 GBNF is scannerless: the grammar accounts for every character, including
 the spaces. The engine's defaults are JSON-shaped and lenient, so the
-emitted spec turns them off — empty ignore set, no space/line/comment/
+emitted spec turns them off: an empty ignore set, no space, line, comment,
 string/number/text matchers. What is left is the grammar's own fixed
 tokens (its literals) and match tokens (its classes).
 
@@ -80,9 +80,9 @@ options, exit codes, and the JSON report shape.
 
 ## What this package owns
 
-Only the notation. The compilation itself — desugaring repetition into
+Only the notation. The compilation itself (desugaring repetition into
 helper rules, left-recursion elimination, probe dispatch, literal
-lifting, token allocation, first-set analysis, chain emission — lives in
+lifting, token allocation, first-set analysis, chain emission) lives in
 [`@tabnas/bnf`](https://github.com/tabnas/bnf), shared with the ABNF and
 EBNF front-ends:
 
@@ -98,13 +98,13 @@ plus the terminal decoders and the lexer settings the spec carries);
 
 Four-quadrant [Diátaxis](https://diataxis.fr) docs:
 
-- [tutorial.md](doc/tutorial.md) — learning-oriented: zero to a working
+- [tutorial.md](doc/tutorial.md). Learning-oriented: zero to a working
   parser, step by step.
-- [guide.md](doc/guide.md) — task-oriented recipes for real problems.
-- [reference.md](doc/reference.md) — the exact API and GBNF syntax
+- [guide.md](doc/guide.md). Task-oriented recipes for real problems.
+- [reference.md](doc/reference.md). The exact API and GBNF syntax
   supported.
-- [concepts.md](doc/concepts.md) — how the compiler works and why.
-- [known-gaps.md](doc/known-gaps.md) — where this and llama.cpp diverge,
+- [concepts.md](doc/concepts.md). How the compiler works and why.
+- [known-gaps.md](doc/known-gaps.md). Where this and llama.cpp diverge,
   and what causes each divergence.
 
 ## License

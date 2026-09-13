@@ -30,8 +30,8 @@ Take GBNF source and return a tabnas `GrammarSpec` (a `ref` map of
 action closures, an `options` block, and a `rule` table). This is the
 primary entry point, and is also exported as `toSpec`.
 
-- `src: string` — the GBNF source.
-- `opts?: GbnfConvertOptions` — see below.
+- `src: string`. The GBNF source.
+- `opts?: GbnfConvertOptions`. See below.
 
 Throws `GbnfParseError` when the text is not GBNF, and
 `GbnfCompileError` when it is GBNF but does not describe a buildable
@@ -52,7 +52,7 @@ resolves, and no tokenizer-token terminals remain.
 
 The inverse of `parseGbnf`: take a grammar IR and return GBNF source.
 Because `@tabnas/abnf` parses into the same IR, this is also the
-ABNF → GBNF bridge — any grammar a sibling front-end can read becomes
+ABNF → GBNF bridge: any grammar a sibling front-end can read becomes
 a `.gbnf` file a sampler can consume.
 
 ```js
@@ -62,15 +62,15 @@ const { renderGbnf } = require('@tabnas/gbnf')
 renderGbnf(parseAbnf('greet = "hi"\n')) // => 'root ::= greet\ngreet ::= [hH] [iI]\n'
 ```
 
-- `grammar: Grammar` — the IR (`{ productions: [...] }`).
-- `opts?.start: string` — the production a synthesized `root` should
+- `grammar: Grammar`. The IR (`{ productions: [...] }`).
+- `opts?.start: string`. The production a synthesized `root` should
   reference when the grammar has no rule named `root` (default: the
   first production). Ignored when `root` exists.
 
 Two properties, both pinned by `ts/test/render.test.js`:
 
 - **Fixed point.** For a grammar that came from GBNF,
-  `parseGbnf(renderGbnf(g))` reproduces `g` exactly — graded over the
+  `parseGbnf(renderGbnf(g))` reproduces `g` exactly, graded over the
   whole llama.cpp corpus and all 70 live-corpus grammars. The renderer
   chooses spellings, never meanings.
 - **Faithful or refused.** Constructs GBNF cannot express raise
@@ -79,7 +79,7 @@ Two properties, both pinned by `ts/test/render.test.js`:
   character class, an illegal rule name, a duplicate production. The
   one exact expansion is performed rather than refused: a
   case-INSENSITIVE literal (ABNF's default) becomes an equivalent
-  sequence — `"hi"` → `[hH] [iI]`, `2"ab"` → `([aA] [bB]){2}` — which
+  sequence (`"hi"` → `[hH] [iI]`, `2"ab"` → `([aA] [bB]){2}`) which
   accepts precisely the same strings. A case-insensitive literal
   containing a non-ASCII cased character has no exact expansion and is
   refused.
@@ -100,7 +100,7 @@ internally by `emitGrammarSpec`; exported for inspection.
 ### `gbnfRules`
 
 The declarative table of tabnas rules that defines the GBNF grammar
-itself — the meta-grammar used to read GBNF source. Exported for
+itself: the meta-grammar used to read GBNF source. Exported for
 introspection and tooling.
 
 ### `GbnfConvertOptions`
@@ -122,10 +122,10 @@ introspection and tooling.
 
 Install with `new Tabnas({ plugins: [gbnf] })` or `tn.use(gbnf)`. Adds:
 
-- **`tn.gbnf(src, opts?) => GrammarSpec`** — compile and install. The
+- **`tn.gbnf(src, opts?) => GrammarSpec`**. Compile and install. The
   spec is applied with `tn.grammar(spec)`, which brings the lexer
   settings with it.
-- **`tn.gbnf.toSpec(src, opts?) => GrammarSpec`** — compile only.
+- **`tn.gbnf.toSpec(src, opts?) => GrammarSpec`**. Compile only.
 
 Use a fresh instance per grammar (`tn.make()`): installing a grammar
 also installs instance-wide lexer settings, so a second grammar layered
@@ -146,7 +146,7 @@ The source is not GBNF. Fields:
 | `column` | 1-based column, when known |
 | `cause` | the underlying `TabnasError`, when there is one |
 
-Also raised by the terminal decoders — an unknown escape, a short hex
+Also raised by the terminal decoders: an unknown escape, a short hex
 escape, a code point above `U+10FFFF`, an empty character class, a
 descending range, an inverted repetition bound.
 
@@ -192,7 +192,7 @@ classify(`root ::= [z-a]`)   // => 'GbnfParseError'
 name ::= alternation
 ```
 
-A rule name is `[A-Za-z0-9_-]+` — llama.cpp's `is_word_char` set, so a
+A rule name is `[A-Za-z0-9_-]+`, llama.cpp's `is_word_char` set, so a
 name may start with a digit or a hyphen. `root` is the start symbol and
 is mandatory. A second definition of a name **replaces** the first;
 GBNF has no incremental-alternative operator.
@@ -255,7 +255,7 @@ Operators may be chained and are applied left to right, so `x*?` is
 ### Comments
 
 `#` to end of line. A `#` inside a string literal or a character class
-is an ordinary character — both are lexed whole, before the comment
+is an ordinary character; both are lexed whole, before the comment
 matcher sees them.
 
 ### Not supported
@@ -278,7 +278,7 @@ engine behave that way. They are applied to the instance by
 | `space.lex` `line.lex` | `false` | Whitespace is grammar, not noise. |
 | `comment.lex` | `false` | A `#` in the INPUT is data, not a comment. |
 | `string.lex` `number.lex` `text.lex` `value.lex` | `false` | JSON-shaped matchers would claim characters the grammar has already spoken for; without them, an unmatched character is a lex error. |
-| `lex.empty` | computed | Whether the empty input is in the language, decided from the IR — see below. |
+| `lex.empty` | computed | Whether the empty input is in the language, decided from the IR; see below. |
 | `fixed.token` | from the grammar | One entry per distinct string literal. Case-sensitive literals lower to exact fixed tokens. |
 | `match.token` | from the grammar | One anchored regex per distinct character class. |
 
@@ -301,7 +301,7 @@ gbnfConvert(`root ::= "x"{0,2}`).options.lex // => ({ empty: true, relex: true }
 
 The engine lexes under the active rule's direction: a class token is
 only offered a position when the rule's alternatives name it there. That
-is what lets `[a-z]` and `[a-z0-9_]` coexist — and it is also why a
+is what lets `[a-z]` and `[a-z0-9_]` coexist, and it is also why a
 class immediately after a repetition can be invisible.
 
 When two conditions hold over the whole grammar, the front-end drops the
@@ -314,7 +314,7 @@ Under both, every character has exactly one possible token, so
 tokenisation no longer depends on parse state. Set `eagerClasses: false`
 to keep rule-directed lexing. The full account, including what happens
 when the conditions do not hold, is in
-[known-gaps.md](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing--resolved).
+[known-gaps.md](known-gaps.md#2-overlapping-terminals-and-rule-directed-lexing-resolved).
 
 ---
 
@@ -338,7 +338,7 @@ only compiled.
 | `-t, --text <s>` | check `<s>` itself instead of reading a file. Repeatable; checked after the file samples. |
 | `--stdin` | read one sample from stdin. Not with a `-` grammar. |
 | `--json` | write the machine-readable report below to stdout. |
-| `--ast` | include each accepted sample's `{rule, src, kids}` AST in the report. An accepted *empty* input reports `null` — the engine settles `''` before any rule runs. |
+| `--ast` | include each accepted sample's `{rule, src, kids}` AST in the report. An accepted *empty* input reports `null`, because the engine settles `''` before any rule runs. |
 | `--strip-final-newline` | remove one trailing newline (`\n` or `\r\n`) from every sample before parsing. Off by default: silently altering input would change the accepted language. |
 | `-q, --quiet` | no report; the exit code is the answer. Not with `--json`. |
 | `-h, --help` `-v, --version` | the usual. |
@@ -354,7 +354,7 @@ only compiled.
 
 ### JSON report
 
-`--json` emits one JSON document on stdout — also for usage errors, so
+`--json` emits one JSON document on stdout, also for usage errors, so
 tooling never has to parse prose. Shape:
 
 ```json
@@ -378,13 +378,13 @@ tooling never has to parse prose. Shape:
 
 - `grammar.error` carries the compile failure when there is one:
   `name` is `GbnfParseError` (with `line`/`column` when the failure
-  has a location — a terminal-decoder error does not) or
+  has a location; a terminal-decoder error does not) or
   `GbnfCompileError` (with `rule`).
 - `samples[].error` is the engine's parse failure, ANSI-free, with
   `line`/`column` when known. `length` is what was actually parsed
   (after `--strip-final-newline`), in UTF-16 units.
 - `samples[].hint` appears when a rejected sample would have parsed
-  without its final newline — the `echo hi > s.txt` footgun.
+  without its final newline: the `echo hi > s.txt` footgun.
 - `caveats` appears when at least one sample was rejected: a rejection
   is this engine's answer, not always the grammar's
   ([known-gaps.md](known-gaps.md#3-gbnf-can-express-grammars-no-deterministic-parser-can-run)).
