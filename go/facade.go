@@ -80,7 +80,7 @@ func Gbnf(src string, opts *ConvertOptions) (*tabnas.GrammarSpec, error) {
 	if err != nil {
 		return nil, err
 	}
-	applyExactLexing(spec, derivesEmpty(grammar, start))
+	applyExactLexing(spec)
 	return spec, nil
 }
 
@@ -136,7 +136,7 @@ func restamp(msg string) string {
 // character at a time — so anything the lexer does on its own initiative
 // (skipping space, recognising numbers, claiming quoted strings) changes
 // the accepted language.
-func applyExactLexing(spec *tabnas.GrammarSpec, acceptsEmpty bool) {
+func applyExactLexing(spec *tabnas.GrammarSpec) {
 	off := false
 	if spec.Options == nil {
 		spec.Options = &tabnas.Options{}
@@ -167,8 +167,16 @@ func applyExactLexing(spec *tabnas.GrammarSpec, acceptsEmpty bool) {
 	// No capability probe here, unlike ts/src/converter.ts: Go resolves
 	// this field at compile time, so a parser too old to know Relex fails
 	// the build rather than silently ignoring the option.
+	//
+	// Set the field, do not replace Lex: Empty is the compiler's to set,
+	// from the start rule's nullability, and replacing the struct dropped
+	// it. That is the defect of #23 one field over — the compiler answers,
+	// this front-end discards the answer.
 	on := true
-	spec.Options.Lex = &tabnas.LexOptions{Empty: &acceptsEmpty, Relex: &on}
+	if spec.Options.Lex == nil {
+		spec.Options.Lex = &tabnas.LexOptions{}
+	}
+	spec.Options.Lex.Relex = &on
 }
 
 // ToSpec is Gbnf under the name the TS package uses.

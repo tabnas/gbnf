@@ -123,66 +123,6 @@ func requireDefinedRefs(prods []*bnf.Production) error {
 	return nil
 }
 
-// derivesEmpty reports whether the start rule can derive the empty
-// string. Walked over the parsed IR — before the compiler desugars it —
-// because the IR still says star/opt/rep outright, where the emitted
-// spec has already turned them into mutually-referring helpers.
-//
-// The `seen` set makes a recursive rule terminate; a rule already on the
-// stack contributes nothing new, so treating it as non-nullable is both
-// safe and the least-fixed-point answer.
-func derivesEmpty(g *bnf.Grammar, start string) bool {
-	byName := map[string]*bnf.Production{}
-	for _, p := range g.Productions {
-		byName[p.Name] = p
-	}
-	seen := map[string]bool{}
-
-	var elEmpty func(el *bnf.Element) bool
-	var ruleEmpty func(name string) bool
-
-	elEmpty = func(el *bnf.Element) bool {
-		switch el.Kind {
-		case bnf.KindOpt, bnf.KindStar:
-			return true
-		case bnf.KindRep:
-			return el.Min == 0
-		case bnf.KindPlus:
-			return elEmpty(el.Inner)
-		case bnf.KindGroup:
-			for _, a := range el.Alts {
-				if seqEmpty(a, elEmpty) {
-					return true
-				}
-			}
-			return false
-		case bnf.KindRef:
-			return ruleEmpty(el.Name)
-		}
-		return false
-	}
-
-	ruleEmpty = func(name string) bool {
-		if seen[name] {
-			return false
-		}
-		seen[name] = true
-		defer delete(seen, name)
-		p := byName[name]
-		if p == nil {
-			return false
-		}
-		for _, a := range p.Alts {
-			if seqEmpty(a, elEmpty) {
-				return true
-			}
-		}
-		return false
-	}
-
-	return ruleEmpty(start)
-}
-
 func seqEmpty(a bnf.Sequence, elEmpty func(*bnf.Element) bool) bool {
 	for _, el := range a {
 		if !elEmpty(el) {
