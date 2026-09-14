@@ -187,7 +187,7 @@ The front-end closes most of that gap by configuration. The emitted spec
 carries an empty ignore set and switches off every default matcher, so
 what remains is the grammar's own fixed tokens (its literals) and match
 tokens (its classes). An input character the grammar never mentioned
-becomes a lex error rather than a silently-skipped one, and `tn.parse()`
+becomes a lex error rather than a silently skipped one, and `tn.parse()`
 is a faithful acceptance test.
 
 What configuration cannot close is **overlap**. Two GBNF terminals may

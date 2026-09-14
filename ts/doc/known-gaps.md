@@ -48,7 +48,7 @@ one character at a time, with no lexical level at all. When several
 terminals can claim the same character (`[a-z0-9_]`, `[0-9]`, `[ \t\n]`
 and the literal `"\n"` all live at the same positions in
 `arithmetic.gbnf`), the character used to get ONE identity at first
-lexing, and every alternative that needed the other equally-valid
+lexing, and every alternative that needed the other equally valid
 identity failed.
 
 It is resolved by one engine option and three compiler behaviours, each
