@@ -292,6 +292,7 @@ arrow's output needs to behave scannerlessly.
 |---|---|
 | [`ts/`](ts/) | TypeScript / JavaScript (`@tabnas/gbnf`). Canonical. |
 | [`go/`](go/) | The Go port of the front-end. Reads `.gbnf` text, compiles the whole corpus, and grades accept/reject on all eight grammars, agreeing with TypeScript in both directions. See [`go/README.md`](go/README.md). |
+| [`rs/`](rs/) | The Rust port (`tabnas-gbnf`). The front-end, the renderer and the `gbnf-check` command, graded against both corpora and against the canonical TypeScript itself over 212 sources. See [`rs/README.md`](rs/README.md). |
 
 ## Documentation
 

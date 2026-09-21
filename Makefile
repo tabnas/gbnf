@@ -1,16 +1,17 @@
 # Build, test and publish the TypeScript (ts/) implementation, and
-# build/test the Go port (go/).
+# build/test the Go port (go/) and the Rust port (rs/).
 #
 # The aggregate targets (build/test/clean) stay ts-only so they never
-# demand a Go toolchain; run the -go targets explicitly. Go releases are
-# `go/v*` tags served by the module proxy (see .github/workflows), so
-# publish-go stays an echo.
+# demand a Go or Rust toolchain; run the -go and -rs targets explicitly.
+# Go releases are `go/v*` tags served by the module proxy (see
+# .github/workflows), so publish-go stays an echo.
 #
 # Local build/test resolve the unpublished @tabnas siblings via the
 # repo-set node_modules symlinks (admin/scripts/link.sh).
 
-.PHONY: all build test clean build-ts build-go test-ts test-go \
-        clean-ts clean-go publish-ts publish-go tags-go reset \
+.PHONY: all build test clean build-ts build-go build-rs \
+        test-ts test-go test-rs clean-ts clean-go clean-rs version-rs \
+        publish-ts publish-go tags-go reset \
         prose prose-counts
 
 all: build test
@@ -47,6 +48,39 @@ clean-go:
 
 publish-go:
 	@echo "go/: published by pushing a go/v* tag; see tags-go"
+
+# --- Rust (crate in rs/) ---
+#
+# The engine and the shared compiler are PATH dependencies on sibling
+# checkouts (tabnas/parser and tabnas/bnf), and tabnas/abnf is a
+# dev-dependency; none is published, so clone all three beside this
+# repository first. `ci/rust/run.sh` is the full gate.
+build-rs:
+	cd rs && cargo build --all-targets
+
+# `--all-targets` does NOT include doctests -- cargo documents the
+# selector as "Test all targets (does not include doctests)" -- and
+# rs/README.md is doctested, so both commands are needed.
+test-rs:
+	cd rs && cargo test --all-targets && cargo test --doc
+	cd rs && cargo clippy --all-targets --all-features -- -D warnings
+
+clean-rs:
+	cd rs && cargo clean
+
+# Set the Rust crate version: make version-rs V=x.y.z
+#
+# Rewrites the two sites in the crate and then runs cargo once so it
+# refreshes rs/Cargo.lock, which ci/rust/run.sh holds to rs/Cargo.toml.
+# The three other version sites (ts/package.json, ts/src/gbnf.ts,
+# go/gbnf.go) are the release orchestrator's, and
+# rs/tests/version_test.rs fails the build when any of the five drift.
+version-rs:
+	@test -n "$(V)" || (echo "Usage: make version-rs V=x.y.z" && exit 1)
+	sed -i.bak 's/^version = ".*"/version = "$(V)"/' rs/Cargo.toml
+	sed -i.bak 's/^pub const VERSION: &str = ".*";/pub const VERSION: \&str = "$(V)";/' rs/src/lib.rs
+	rm -f rs/Cargo.toml.bak rs/src/lib.rs.bak
+	cd rs && cargo metadata --format-version 1 --offline >/dev/null
 
 # List published Go module tags, newest first.
 tags-go:
