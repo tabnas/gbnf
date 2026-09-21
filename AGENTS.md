@@ -70,6 +70,7 @@ or narrows an accepted language defeats the purpose stated there.
 | [`test/live/`](test/live/) | Schema-generated GBNF, extracted verbatim from llama.cpp's converter tests. See the README there. |
 | [`ts/doc/`](ts/doc/) | 4-quadrant Diátaxis docs plus [`known-gaps.md`](ts/doc/known-gaps.md). |
 | [`go/`](go/) | The Go port. Follows `ts/`; see [`go/README.md`](go/README.md). |
+| [`rs/`](rs/) | The Rust port (`tabnas-gbnf`). Follows `ts/`, not `go/`, and carries the renderer and the command as well as the front-end; see [`rs/README.md`](rs/README.md) and [`rs/AGENTS.md`](rs/AGENTS.md). Its recorded divergences are in [`DIVERGENCE.md`](DIVERGENCE.md). |
 | [`go/clib/`](go/clib/) | `libtabnasgbnf`, the C ABI. Two doors: `gbnf_parse` validates in-process (compiled NATIVELY, since a GBNF grammar's lexing settings are part of its language), and `gbnf_compile` emits a serialized recognition spec so `libtabnas` can validate elsewhere with no GBNF front-end present. See [`go/clib/README.md`](go/clib/README.md). |
 | [`docs/`](docs/) | The GitHub Pages site (`docs/index.html`) — live at [tabnas.github.io/gbnf](https://tabnas.github.io/gbnf/) — aimed at AI developers. One self-contained file, no external requests, tabnas palette — matching [tabnas.github.io/chess](https://tabnas.github.io/chess/). Every code sample on it was run before publication. Carries a live checker: `docs/gbnf-demo.js` is a committed bundle (`npm run build-demo` in `ts/`), loaded relatively the way tabnas.github.io/chess loads chess-view.js, because Pages serves `docs/` with no build step. |
 | [`py/`](py/) | The Python binding — `ctypes` over `libtabnasgbnf`. Reimplements nothing; graded against the same corpus and samples as the Go and TS suites. |
@@ -239,6 +240,7 @@ unless stated:
 ```bash
 make build && make test      # TypeScript — the aggregate targets are ts-only by design
 make test-go                 # Go — run it explicitly; parity is a real claim
+make test-rs                 # Rust — likewise; ci/rust/run.sh is the full gate
 ```
 
 Narrower, when iterating on TS:
@@ -253,7 +255,9 @@ against `dist/`, and `ts/package.json` sets `pretest` to `npm run build`, so
 — the corpora are committed.)
 
 Know what `make test` does NOT cover: `go/` (run `make test-go`, or
-`cd go && go test ./...`), the `py/` binding (graded per
+`cd go && go test ./...`), `rs/` (run `make test-rs`, or
+`cd rs && cargo test --all-targets && cargo test --doc`; the full gate
+is `ci/rust/run.sh`), the `py/` binding (graded per
 [`py/README.md`](py/README.md), after building `go/clib/`), and the
 `docs/` site — whose live checker `docs/gbnf-demo.js` is a committed
 bundle, rebuilt with `npm run build-demo` from `ts/` when the behaviour it
@@ -529,11 +533,24 @@ an agent operating on either must treat every value as hostile text.
 
 - **`markClassesEager` has no Go port.** The front-end's one local
   mitigation — dropping the rule-directed gate when a grammar's classes
-  are provably unambiguous — is TypeScript-only. Smaller than it
+  are provably unambiguous — is missing in `go/`. Smaller than it
   sounds, and inert where it does not apply: the whole corpus grades
-  in both directions without it.
-- **The Go renderer.** `renderGbnf` (IR → GBNF text) is TS-only,
-  `ts/` being canonical; the Go port follows.
+  in both directions without it. The Rust port HAS it, and
+  `rs/tests/oracle_test.rs` compares the eager flags it sets against
+  the TypeScript ones for every source it carries.
+- **The Go renderer.** `renderGbnf` (IR → GBNF text) has no Go
+  counterpart, `ts/` being canonical; the Go port follows. The Rust
+  port has it (`render_gbnf`), and so does the Rust command
+  (`gbnf-check`, `ts/src/cli.ts`'s other unported half).
+- **Rust-side limits.** Deep nesting is refused where TypeScript
+  compiles it, in two measures (rule levels, and how deep the IR
+  nests); a repetition parses in quadratic time where TypeScript and Go
+  are linear; and a repetition COUNT in the millions ends the process on
+  an allocation where TypeScript raises a catchable error. All are
+  measured against all three runtimes in
+  [`DIVERGENCE.md`](DIVERGENCE.md), which names the owner: the stack
+  caps are this repository's and stay, and the other two are the shared
+  compiler's.
 
 **Go parse-level parity is done**, and is worth knowing about because
 it took two upstream changes, not one. Negotiated lexing landed in

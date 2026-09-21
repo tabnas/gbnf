@@ -1,0 +1,45 @@
+# The Rust port of @tabnas/gbnf. ts/ is canonical; go/ and this crate
+# track it. `version` MUST equal ts/package.json "version", `VERSION` in
+# ts/src/gbnf.ts and `const VERSION` in go/gbnf.go:
+# tests/version_test.rs fails the build when they drift.
+
+[package]
+name = "tabnas-gbnf"
+version = "0.1.8"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+description = "llama.cpp GBNF grammar compiler for the tabnas parsing engine: GBNF text in, tabnas GrammarSpec out, plus the inverse renderer and the gbnf-check validator"
+repository = "https://github.com/tabnas/gbnf"
+readme = "README.md"
+keywords = ["tabnas", "gbnf", "llama-cpp", "grammar", "parser"]
+categories = ["parsing", "command-line-utilities"]
+
+[lib]
+name = "tabnas_gbnf"
+path = "src/lib.rs"
+
+# The `gbnf-check` command. The library is the crate, and the binary is a
+# launcher over `tabnas_gbnf::cli::run`, the port of ts/src/cli.ts. The
+# tests drive `run` in process rather than spawning it.
+[[bin]]
+name = "gbnf-check"
+path = "src/bin/gbnf-check.rs"
+
+[dependencies]
+# The engine and the shared BNF-family compiler are consumed as SIBLING
+# CHECKOUTS, the standard tabnas development model: clone
+# https://github.com/tabnas/parser and https://github.com/tabnas/bnf next
+# to this repo. Neither crate is published, so there is no registry
+# version to fall back on.
+tabnas = { path = "../../parser/rs" }
+tabnas-bnf = { path = "../../bnf/rs" }
+indexmap = "2"
+regex = "1.10"
+serde_json = { version = "1.0", features = ["preserve_order"] }
+
+[dev-dependencies]
+# The ABNF front-end parses into the SAME IR, which is what makes the
+# ABNF to GBNF bridge testable: tests/render_test.rs grades it end to
+# end, exactly as ts/test/render.test.js does.
+tabnas-abnf = { path = "../../abnf/rs" }
