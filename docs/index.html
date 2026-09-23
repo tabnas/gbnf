@@ -363,7 +363,8 @@ $ echo $?
 
     v = g.check(<span class="y">'{"a": 1,}'</span>)
     v.accept                   <span class="c"># False</span>
-    v.error[<span class="y">"message"</span>]        <span class="c"># '[tabnas/unexpected]: unexpected character(s): ,'</span></pre>
+    v.error[<span class="y">"code"</span>]           <span class="c"># 'unexpected'</span>
+    v.error[<span class="y">"message"</span>]        <span class="c"># 'unexpected character(s): ,'</span></pre>
 
 <p>From TypeScript and Go, the same grammar on a parser instance:</p>
 
@@ -543,7 +544,7 @@ tn.parse(<span class="y">'{"a": 1}'</span>)  <span class="c">// => the AST</span
 <figure>
 <div class="diagram">
 <svg viewBox="0 0 700 136" width="700" height="136" role="img"
-     aria-label="GBNF text is compiled by libtabnasgbnf into a recognition spec, which libtabnas runs to produce verdicts.">
+     aria-label="GBNF text is compiled by libtabnasgbnf into a recognition spec, which libtabnasparser runs to produce verdicts.">
   <style>
     .bx { fill: var(--code-bg); stroke: var(--rule); stroke-width: 1; }
     .lb { fill: var(--ink); font: 600 13px var(--font-body); }
@@ -564,7 +565,7 @@ tn.parse(<span class="y">'{"a": 1}'</span>)  <span class="c">// => the AST</span
   <text class="lb" x="344" y="60" text-anchor="middle">recognition spec</text>
   <text class="sb" x="344" y="76" text-anchor="middle">pure data · JSON</text>
 
-  <text class="sb" x="494" y="50" text-anchor="middle">libtabnas</text>
+  <text class="sb" x="494" y="50" text-anchor="middle">libtabnasparser</text>
   <line class="ar" x1="442" y1="62" x2="538" y2="62"/>
   <polygon class="ah" points="548,62 538,57 538,67"/>
 
@@ -698,9 +699,10 @@ tn.parse(<span class="y">'{"a": 1}'</span>)  <span class="c">// => the AST</span
   <li>
     <strong>The Python package isn't on PyPI yet.</strong> There's no
     <code>pyproject.toml</code> either, so <code>import gbnf</code> needs
-    <code>py/</code> on <code>PYTHONPATH</code> once you've built the
-    shared library. A wheel matrix is the obvious next step and it isn't
-    done yet.
+    <code>py/</code> on <code>PYTHONPATH</code> once you've built its two
+    shared libraries: <code>libtabnasgbnf</code> from this repository and
+    the engine's <code>libtabnasparser</code> from tabnas/parser. A wheel
+    matrix is the obvious next step and it isn't done yet.
   </li>
 </ul>
 
@@ -734,8 +736,9 @@ npm i @tabnas/gbnf
 <span class="c"># the Go module</span>
 go get github.com/tabnas/gbnf/go
 
-<span class="c"># the Python binding: build the shared library, then put py/ on the path</span>
+<span class="c"># the Python binding: build both shared libraries, then put py/ on the path</span>
 <span class="c"># (no packaging yet – see “what it won't do”)</span>
+git clone https://github.com/tabnas/parser &amp;&amp; (cd parser/go/clib &amp;&amp; ./build.sh)
 git clone https://github.com/tabnas/gbnf &amp;&amp; cd gbnf
 (cd go/clib &amp;&amp; ./build.sh)
 PYTHONPATH=$PWD/py python3 -c <span class="y">'import gbnf; print(gbnf.version())'</span></pre>
