@@ -1,8 +1,15 @@
 __pycache__/
 *.pyc
 
-# A built library dropped next to the module — _default_lib_path() looks
-# for it here, so it is a normal thing to have and never a thing to commit.
+# Built libraries dropped next to the module — _default_lib_path() and
+# _default_engine_path() look for them here, so they are a normal thing
+# to have and never a thing to commit.
 libtabnasgbnf.so
 libtabnasgbnf.dylib
 libtabnasgbnf.dll
+libtabnasparser.so
+libtabnasparser.dylib
+libtabnasparser.dll
+libtabnas.so
+libtabnas.dylib
+libtabnas.dll

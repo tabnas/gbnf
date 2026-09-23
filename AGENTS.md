@@ -71,9 +71,9 @@ or narrows an accepted language defeats the purpose stated there.
 | [`ts/doc/`](ts/doc/) | 4-quadrant Diátaxis docs plus [`known-gaps.md`](ts/doc/known-gaps.md). |
 | [`go/`](go/) | The Go port. Follows `ts/`; see [`go/README.md`](go/README.md). |
 | [`rs/`](rs/) | The Rust port (`tabnas-gbnf`). Follows `ts/`, not `go/`, and carries the renderer and the command as well as the front-end; see [`rs/README.md`](rs/README.md) and [`rs/AGENTS.md`](rs/AGENTS.md). Its recorded divergences are in [`DIVERGENCE.md`](DIVERGENCE.md). |
-| [`go/clib/`](go/clib/) | `libtabnasgbnf`, the C ABI. Two doors: `gbnf_parse` validates in-process (compiled NATIVELY, since a GBNF grammar's lexing settings are part of its language), and `gbnf_compile` emits a serialized recognition spec so `libtabnas` can validate elsewhere with no GBNF front-end present. See [`go/clib/README.md`](go/clib/README.md). |
+| [`go/clib/`](go/clib/) | `libtabnasgbnf`, the C ABI: the five uniform tabnas symbols (admin ADR-12), stamped from the admin clib template, so every file there except `value_test.go` is template-owned — re-stamp, don't edit. `tabnas_parse` takes GBNF *text*: `accept:true` means it compiles, and `value` is its recognition spec, which the engine's own library (`libtabnasparser`, from tabnas/parser) loads through `tabnas_grammar` to validate text with no GBNF front-end present. [`value_test.go`](go/clib/value_test.go) grades that spec on a bare engine against the corpus and a native install. See [`go/clib/README.md`](go/clib/README.md). |
 | [`docs/`](docs/) | The GitHub Pages site (`docs/index.html`) — live at [tabnas.github.io/gbnf](https://tabnas.github.io/gbnf/) — aimed at AI developers. One self-contained file, no external requests, tabnas palette — matching [tabnas.github.io/chess](https://tabnas.github.io/chess/). Every code sample on it was run before publication. Carries a live checker: `docs/gbnf-demo.js` is a committed bundle (`npm run build-demo` in `ts/`), loaded relatively the way tabnas.github.io/chess loads chess-view.js, because Pages serves `docs/` with no build step. |
-| [`py/`](py/) | The Python binding — `ctypes` over `libtabnasgbnf`. Reimplements nothing; graded against the same corpus and samples as the Go and TS suites. |
+| [`py/`](py/) | The Python binding — `ctypes` over two libraries: `libtabnasgbnf` compiles the grammar (`compile_spec`), and `libtabnasparser` from tabnas/parser runs the spec (`Grammar`). Reimplements nothing; graded against the same corpus and samples as the Go and TS suites. |
 
 ## Conformance claim
 
@@ -258,7 +258,9 @@ Know what `make test` does NOT cover: `go/` (run `make test-go`, or
 `cd go && go test ./...`), `rs/` (run `make test-rs`, or
 `cd rs && cargo test --all-targets && cargo test --doc`; the full gate
 is `ci/rust/run.sh`), the `py/` binding (graded per
-[`py/README.md`](py/README.md), after building `go/clib/`), and the
+[`py/README.md`](py/README.md), after building `go/clib/` and, for
+every test that checks text, tabnas/parser's `libtabnasparser` — without
+it those tests skip), and the
 `docs/` site — whose live checker `docs/gbnf-demo.js` is a committed
 bundle, rebuilt with `npm run build-demo` from `ts/` when the behaviour it
 demonstrates changes.
@@ -435,6 +437,17 @@ The steps, in order:
    shipped is then a commit you never cleared CI on, and `release.yml`
    runs no tests of its own. Confirm `$GH` is green on `main` before
    calling the release good.
+
+   **The dispatch also publishes the C artifacts (admin ADR-19).** Once
+   `go/v$V` is on the remote, `release.yml` calls
+   `.github/workflows/clib-release.yml`, which creates the GitHub Release on
+   that tag as a draft, builds and attaches the shared libraries and
+   `manifest.json`, and only then publishes it. The release is done when
+   that Release is published with `manifest.json` among its assets. A draft
+   left behind means the C build failed after npm and Go had shipped: fix
+   the cause, then dispatch `clib-release.yml` on `main` with that tag and
+   `darwin_only` false, which finishes the same draft. `darwin_only` true
+   only late-attaches darwin artifacts to a Release that has the rest.
 
 ### When a dispatch dies half-way
 
