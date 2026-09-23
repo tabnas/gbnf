@@ -395,7 +395,7 @@ func newGbnfParser() *tabnas.Tabnas {
 			// string or a character class is never seen here: both are
 			// match tokens, and the match matcher runs first.
 			Def: map[string]*tabnas.CommentDef{
-				"hash":  {Line: true, Start: "#", Lex: &on, EatLine: &off},
+				"hash":  {Line: tabnas.Bool(true), Start: "#", Lex: &on, EatLine: &off},
 				"slash": nil,
 				"multi": nil,
 			},
