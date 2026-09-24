@@ -2,7 +2,7 @@
 
 How the tabnas documentation is written. Adapted from
 [aontu](https://github.com/aontu-lang/aontu)'s `docs/STYLE-GUIDE.md`,
-with tabnas's terminology, two-runtime file layout, and executable-example
+with tabnas's terminology, per-runtime file layout, and executable-example
 conventions. This guide is normative for every page `ts/scripts/gated-docs.cjs`
 lists, which is the reader-facing set: 9 pages in this repository. It exists so that a page written next year sounds like a
 page written this year, and so that a reviewer can point at a rule instead
@@ -39,10 +39,13 @@ drift from the other:
 | `ts/test/docs.test.js` | `make test` | the banned list again, the no-em-dash rule, the first-person rules, the exclamation ration, and no emoji |
 | `ts/scripts/vale-counts.cjs` | `make prose` | that every count in `.vale.ini`, and the total below, are what Vale reports |
 
-The gated set is the reader-facing one: the language-neutral pages under
-`doc/`, the four Diátaxis kinds under `ts/doc/` and `go/doc/`, and the
-three package READMEs. The Rust-port series, the feasibility reports and
-the defect ledgers are working documents, and they are out.
+The gated set is the reader-facing one: the four Diátaxis kinds under
+`ts/doc/` and the known-gaps page beside them, the root README, and the
+three package READMEs. `DIVERGENCE.md`, the corpus notes
+(`test/corpus/README.md` and `test/live/README.md`) and the agent guides
+(`AGENTS.md`, `CLAUDE.md` and the nested `AGENTS.md` files) are working
+documents, and they are out, as are `py/README.md` (see below) and
+`go/clib/README.md`, whose text is stamped from an admin template.
 
 **Four checks live in the local gate rather than in Vale, and the reason
 is capability, not preference.**
@@ -99,11 +102,13 @@ tutorial, used in a guide, specified in the reference, argued in the
 explanation) but the normative statement lives in the reference and
 everything else links to it.
 
-**The two runtimes carry the same set.** A page present under `ts/doc/`
-and missing under `go/doc/` is a gap. `gated-docs.cjs` throws on a
-declared page that is not on disk, so a gated page that is deleted or
-renamed fails the gate rather than dropping out of it. A page only one
-port has is a deliberate exception and says so in its own opening lines.
+**TypeScript is the one runtime with a doc set.** Its pages live under
+`ts/doc/`. The Go and Rust packages document themselves in `go/README.md`
+and `rs/README.md` alone, which are gated like the other READMEs; the
+Python binding's `py/README.md` is outside the gated set.
+`gated-docs.cjs` throws on a declared page that is not on disk, so a
+gated page that is deleted or renamed fails the gate rather than
+dropping out of it.
 
 ## The published set cites nothing internal
 
@@ -333,9 +338,10 @@ same exemption literal code and quoted output have above.
 ## Code snippets
 
 A fenced JavaScript or Go example that states a result carries that
-result as a `// =>` comment, and `ts/test/doc-examples.test.js` executes
-it. A snippet that cannot be executed says why in one sentence rather
-than being left to look executable.
+result as a `// =>` comment. `ts/test/doc-examples.test.js` executes the
+JavaScript ones; it does not read Go fences. A snippet that cannot be
+executed says why in one sentence rather than being left to look
+executable.
 
 ## Terminology
 
