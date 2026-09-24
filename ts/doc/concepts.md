@@ -120,7 +120,7 @@ atom  = NM | GS | CC | DOT | TOK | '(' alts ')'
 Two decisions keep it that small.
 
 **Free-form terminals are lexed whole, and eagerly.** A string literal,
-a character class, a repetition brace, a tokenizer terminal and a rule
+a character class, a repetition brace, a tokenizer terminal, and a rule
 name are each one `match.token` regex flagged `eager$`, which opts the
 matcher out of the lexer's token-column gate. GBNF's terminals are
 distinguished by their first character (`"`, `[`, `{`, `<`, `!` and
