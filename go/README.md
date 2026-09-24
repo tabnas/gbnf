@@ -39,8 +39,8 @@ pins, and rule-for-rule emitter comparison on `c.gbnf`).
 
 `corpusExpectedFailures` in `gbnf_test.go` is empty and stays: a new
 gap goes in the table, and a closed one turns the suite red rather
-than passing unnoticed. (Two of its former entries, c's
-`int x = 1;` and english's trailing newline, turned out to be
+than passing unnoticed. (Two of its former entries, `c.gbnf`'s
+`int x = 1;` and `english.gbnf`'s trailing newline, turned out to be
 outside their grammars' languages, mislabelled as gaps; they moved to
 the reject table.)
 
