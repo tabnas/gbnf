@@ -197,7 +197,7 @@ cargo fmt --check
 
 `make test-rs` from the repository root runs the first four.
 `ci/rust/run.sh` is the full gate, including the lockfile check, and is
-what `ci/workflows/rust.yml` runs.
+what `.github/workflows/rust.yml` runs.
 
 The suite is slower than its siblings and the reason is
 `../DIVERGENCE.md` 3: a repetition parses in quadratic time here, so the

@@ -214,7 +214,7 @@ Three classes, each naming what it can:
 | `GbnfRenderError` | the IR describes something GBNF cannot say |
 
 `GbnfError` wraps the first two plus the shared compiler's own refusal,
-and carries the rule, the source span, the line and the column where
+and carries the rule, the source span, the line, and the column where
 each is known.
 
 ```rust
@@ -238,7 +238,7 @@ under [`../test`](../test) and graded in both directions.
 
 Parity with the canonical TypeScript is measured rather than asserted:
 `tests/oracle_test.rs` holds this crate to what `ts/dist` answered for
-212 sources, source spans, rendered text and emitted match tokens
+212 sources, source spans, rendered text, and emitted match tokens
 included. Where the two cannot agree, the input is in
 [`../DIVERGENCE.md`](../DIVERGENCE.md) with a measured table, and a test
 in `tests/divergence_test.rs` fails the day the entry stops being true.

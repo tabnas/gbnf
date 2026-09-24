@@ -42,7 +42,7 @@ sweep, an install or a fetch, a release, a wait on CI, a benchmark, a
 script or loop you write, and anything sent to the background.
 
 - **Minimal is enough.** One line with the step and a count, such as
-  `conformance: 412/1500 (27%)`, meets it. When no total is known, print
+  `conformance: 412 of 1500 (27%)`, meets it. When no total is known, print
   what is known (the step, the current item, the elapsed time) and say the
   percentage is unknown rather than inventing one.
 - **Build it into what you write.** A script or loop prints a line per
@@ -358,10 +358,16 @@ accepts the publish. Pushing a tag by hand is the orchestrator's path
 
 The steps, in order:
 
-1. Bump all **three** version sites together — `ts/package.json`, `VERSION`
-   in `ts/src/gbnf.ts` and `const VERSION` in `go/gbnf.go`. Drift is caught
-   by `ts/test/version.test.js` and `go/version_test.go`.
-2. Verify against the **published** dependencies rather than your checkout.
+1. Refresh the llama.cpp corpora to the latest llama.cpp release tag before
+   releasing; see "When the llama.cpp pins move" in
+   [`test/AGENTS.md`](test/AGENTS.md).
+2. Bump every version site together — `ts/package.json`, `VERSION` in
+   `ts/src/gbnf.ts`, `const VERSION` in `go/gbnf.go`, `version` in
+   `rs/Cargo.toml` and `pub const VERSION` in `rs/src/lib.rs` — and commit
+   the root `tabnas-gbnf` entry of `rs/Cargo.lock` that cargo rewrites to
+   match. Drift is caught by `ts/test/version.test.js`, `go/version_test.go`
+   and `rs/tests/version_test.rs`, and a stale lock by `ci/rust/run.sh`.
+3. Verify against the **published** dependencies rather than your checkout.
    The release runner installs fresh from the registry; a working tree
    usually does not, so reproduce that before believing anything:
 
@@ -407,20 +413,21 @@ The steps, in order:
 
    `-count=1` because shared fixtures live outside the Go module, so a
    changed corpus does not invalidate the test cache.
-3. **Merge the bump through a reviewed PR.** That is the house convention —
+4. **Merge the bump through a reviewed PR.** That is the house convention —
    `CONTRIBUTING.md` squash-merges PRs and takes the title as the commit
    message — and what `release.yml`'s own header describes. A direct push to
    `main` is a recovery path, not the normal one: CI still gates it, but
-   nothing reviews it, and step 5 then publishes that unreviewed commit
+   nothing reviews it, and step 6 then publishes that unreviewed commit
    immutably. If you take it, say so.
-4. **Wait for `main` CI to go green on the bump commit.** The release
+5. **Wait for `main` CI to go green on the bump commit.** The release
    workflow **has no test step** — it reads `main`, builds against
-   already-published dependencies, publishes and tags. `ci.yml` on the bump
-   commit is the only gate there is. An npm version is immutable, and a Go
-   module tag is worse: proxy.golang.org caches module versions permanently,
-   so a `go/vX.Y.Z` naming the wrong commit cannot be moved, only
-   superseded.
-5. **Record the release commit, then dispatch.** The confirmation
+   already-published dependencies, publishes and tags. `ci.yml` and
+   `rust.yml` on the bump commit are the only gates there are (`rust.yml`
+   runs because its path filter matches the bump's `ts/package.json`
+   change). An npm version is immutable, and a Go module tag is worse:
+   proxy.golang.org caches module versions permanently, so a `go/vX.Y.Z`
+   naming the wrong commit cannot be moved, only superseded.
+6. **Record the release commit, then dispatch.** The confirmation
    below compares each tag against the commit you released, and a run
    that publishes and then fails to tag can be followed by `main`
    moving — so capture it *before* the dispatch, and read it from the
@@ -438,7 +445,7 @@ The steps, in order:
    value the faulty anchor would also produce, so the check would agree with
    itself and pass. If you no longer have it, recover it from the original
    run: the `head_sha` of that `release.yml` run is the commit it published.
-6. Confirm — and make the check **fail**, not merely print:
+7. Confirm — and make the check **fail**, not merely print:
 
    ```bash
    V=x.y.z

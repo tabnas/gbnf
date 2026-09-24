@@ -70,7 +70,7 @@ inert where it is not needed:
   (`ws ::= [ \t\n]*` before the literal `"\n"` is the canonical case).
 - **Keyword-shadow guards** (`@tabnas/bnf`). A literal-keyword
   alternative contested by a character-class alternative (`"while" …`
-  next to `identifier …` in c.gbnf's `statement`) gets 2-token guards
+  next to `identifier …` in `c.gbnf`'s `statement`) gets 2-token guards
   (the keyword plus a token only the keyword alternative can follow it
   with) placed ahead of the class alternative, while its bare 1-token
   entry drops behind, so `while(x<1)…` picks the keyword statement and
@@ -95,7 +95,7 @@ negotiated lexing instead. Pass `{ eagerClasses: false }` to turn the
 eager mitigation off.
 
 **Status:** resolved for the whole corpus. All eight llama.cpp grammars
-compile, accept their own valid samples (keyword statements, funcCall
+compile, accept their own valid samples (keyword statements, `funcCall`
 expressions and keyword-prefixed identifiers included) and reject
 near-miss invalid ones (`ts/test/corpus.test.js` pins both directions).
 The one construct still out of reach is §3's, which is a different
@@ -103,7 +103,7 @@ class of problem.
 
 One boundary case is worth writing down: an identifier *exactly* equal
 to a keyword in a position where the keyword statement is also viable.
-In c.gbnf, `return = 1;` (an identifier literally named `return`,
+In `c.gbnf`, `return = 1;` (an identifier literally named `return`,
 being assigned) matches the keyword guard `("return", ws)` and commits
 to the return-statement, then fails at `=`. llama.cpp's nondeterministic
 sampler would accept it via the identifier alternative. Deciding it

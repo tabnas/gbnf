@@ -10,6 +10,50 @@ Unlike the generated corpora in some sibling repos, these files are
 point is that the bytes are upstream's, and a network failure must never
 be able to turn the conformance suite into a silent no-op.
 
+## When the llama.cpp pins move
+
+The llama.cpp corpora are dependencies, and they track llama.cpp's
+latest **release tag**. They move at gbnf's pace, not llama.cpp's: they
+are refreshed to that tag as part of each gbnf release, not on each
+llama.cpp build, which upstream tags almost daily. One refresh moves
+both corpus pins, because they describe the same upstream, and every
+place that names the pin moves with them:
+
+- `corpus/*.gbnf`, with its provenance in
+  [`corpus/README.md`](corpus/README.md);
+- `live/json-schema-corpus.json`, whose own `"commit"` field carries
+  the pin, with its provenance in [`live/README.md`](live/README.md);
+- this file's opening paragraph, which names the commit and its fetch
+  date;
+- the "Conformance claim" in the root [`AGENTS.md`](../AGENTS.md).
+
+After a refresh, `git grep -n <outgoing sha>` finds nothing that still
+names it as the current pin.
+
+The Rust oracle, `rs/tests/oracle/gbnf-oracle.json`, records the text
+of every corpus grammar and live-case grammar verbatim, so a refresh
+regenerates it: build `ts/`, then run
+[`gen-oracle.js`](../rs/tests/oracle/gen-oracle.js) as its header says.
+
+If the grammar set or the live case count changed, the census moves
+too. The suites of every runtime pin it: the grammar names and samples
+in `ts/test/corpus.test.js`, `go/gbnf_test.go`, `go/clib/value_test.go`,
+`rs/tests/corpus_test.rs` and `py/test_gbnf.py`, and the counts in
+`ts/test/live.test.js`, `go/gbnf_test.go`, `py/test_gbnf.py` and
+`rs/tests/`. The prose states the census in words and in figures, and
+`git grep -n -i -w -E 'eight|seventy|70'` lists every such statement,
+from the root `AGENTS.md` and `README.md` to `docs/index.html`.
+
+A pin already past the latest release tag, on an unreleased upstream
+commit, is fine and stays where it is.
+
+The dialect pin is not a corpus pin. `ts/src/converter.ts` names the
+llama.cpp commit whose `grammars/README.md` dialect this front-end
+implements, `dd1ea524333b1e697489067d7a4c39c60d32beee`, and
+`ts/doc/reference.md`, `ts/doc/known-gaps.md` and `rs/README.md` repeat
+it. It moves only when someone re-ports the dialect, not with a corpus
+refresh.
+
 ## The instrument's own rules
 
 - **Never edit a grammar file.** Not to reformat, not to trim trailing
