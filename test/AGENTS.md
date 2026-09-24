@@ -47,6 +47,13 @@ from the root `AGENTS.md` and `README.md` to `docs/index.html`.
 A pin already past the latest release tag, on an unreleased upstream
 commit, is fine and stays where it is.
 
+The dialect pin is not a corpus pin. `ts/src/converter.ts` names the
+llama.cpp commit whose `grammars/README.md` dialect this front-end
+implements, `dd1ea524333b1e697489067d7a4c39c60d32beee`, and
+`ts/doc/reference.md`, `ts/doc/known-gaps.md` and `rs/README.md` repeat
+it. It moves only when someone re-ports the dialect, not with a corpus
+refresh.
+
 ## The instrument's own rules
 
 - **Never edit a grammar file.** Not to reformat, not to trim trailing
