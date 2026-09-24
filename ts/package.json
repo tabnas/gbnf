@@ -54,7 +54,7 @@
     "@tabnas/parser": ">=0.5.0"
   },
   "devDependencies": {
-    "@tabnas/abnf": "^0.4.14",
+    "@tabnas/abnf": "^0.4.15",
     "@tabnas/bnf": "^0.1.19",
     "@tabnas/debug": "*",
     "@tabnas/parser": "*",
