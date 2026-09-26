@@ -5,7 +5,7 @@
 // definition, the accepted language and the emitted IR. These cases
 // mirror ts/test/gbnf.test.js; the corpus tests below grade the same
 // eight llama.cpp reference grammars, and TestLiveCorpusCompiles the
-// same 70 schema-generated ones.
+// same 77 schema-generated ones.
 package gbnf
 
 import (
@@ -97,6 +97,10 @@ func TestCharacterClasses(t *testing.T) {
 		// A trailing hyphen is a literal member: arithmetic.gbnf's
 		// `[-+*/]` is four members, not a range.
 		{`root ::= [-+*/]`, `[\x{2d}\x{2b}\x{2a}\x{2f}]`, ""},
+		// An escaped hyphen is a member, never a range operator, as
+		// llama.cpp's parse_char reads `\-` at b11200.
+		{`root ::= [a\-z]`, `[\x{61}\x{2d}\x{7a}]`, ""},
+		{`root ::= [a-z\-]`, `[\x{61}-\x{7a}\x{2d}]`, ""},
 		// A negated class matches the COMPLEMENT of its members, which
 		// always contains every astral code point.
 		{`root ::= [^\n]`, `[^\x{a}]`, "u"},
@@ -129,6 +133,10 @@ func TestEscapes(t *testing.T) {
 	g := mustParse(t, `root ::= "\t\r\n\\\"" `)
 	if got := g.Productions[0].Alts[0][0].Literal; got != "\t\r\n\\\"" {
 		t.Errorf("escapes decoded wrong: %q", got)
+	}
+	// `\-` is a literal hyphen in a string, as in a class.
+	if got := mustParse(t, `root ::= "a\-b"`).Productions[0].Alts[0][0].Literal; got != "a-b" {
+		t.Errorf("\\- decoded wrong: %q", got)
 	}
 	for _, bad := range []string{
 		`root ::= "\q"`, `root ::= "\x"`, `root ::= "\u12"`,
@@ -377,9 +385,9 @@ func TestCorpusKnownGaps(t *testing.T) {
 	}
 }
 
-// The live corpus: the 70 expected outputs of llama.cpp's
+// The live corpus: the 77 expected outputs of llama.cpp's
 // JSON-schema-to-grammar converter (test/live/, graded in full by
-// ts/test/live.test.js). Compiling all 70 here exercises the
+// ts/test/live.test.js). Compiling all 77 here exercises the
 // meta-grammar over far more real-world GBNF than the eight reference
 // grammars do — nested groups, deep alternation, long class runs and
 // every repetition form the converter emits.
@@ -400,8 +408,8 @@ func TestLiveCorpusCompiles(t *testing.T) {
 	}
 	// The census is pinned the way ts/test/live.test.js pins it: a case
 	// quietly vanishing would otherwise just mean one less check.
-	if len(corpus.Cases) != 70 {
-		t.Fatalf("expected 70 live cases, got %d", len(corpus.Cases))
+	if len(corpus.Cases) != 77 {
+		t.Fatalf("expected 77 live cases, got %d", len(corpus.Cases))
 	}
 	for _, c := range corpus.Cases {
 		spec, err := Gbnf(c.Grammar, nil)

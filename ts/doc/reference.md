@@ -17,8 +17,8 @@ const {
 } = require('@tabnas/gbnf')
 ```
 
-The dialect implemented is llama.cpp's `grammars/README.md` at commit
-`dd1ea524333b1e697489067d7a4c39c60d32beee` (2026-08-10).
+The dialect implemented is llama.cpp's `grammars/README.md` and grammar
+parser at commit `81bc6b83f827df746eb129235488d325c49cae52` (release b11200, 2026-09-26).
 
 ---
 
@@ -71,7 +71,7 @@ Two properties, both pinned by `ts/test/render.test.js`:
 
 - **Fixed point.** For a grammar that came from GBNF,
   `parseGbnf(renderGbnf(g))` reproduces `g` exactly, graded over the
-  whole llama.cpp corpus and all 70 live-corpus grammars. The renderer
+  whole llama.cpp corpus and all 77 live-corpus grammars. The renderer
   chooses spellings, never meanings.
 - **Faithful or refused.** Constructs GBNF cannot express raise
   `GbnfRenderError` (`.rule` names the production): an engine lexer
@@ -229,13 +229,16 @@ Valid inside both string literals and character classes:
 | Escape | Meaning |
 |---|---|
 | `\n` `\r` `\t` | newline, carriage return, tab |
-| `\\` `\"` `\[` `\]` | the character itself |
+| `\\` `\"` `\[` `\]` `\-` | the character itself |
 | `\xXX` | one byte, 2 hex digits |
 | `\uXXXX` | a BMP code point, 4 hex digits |
 | `\UXXXXXXXX` | any code point, 8 hex digits |
 
-Any other escape is an error, matching llama.cpp. There is no `\-`: a
-hyphen inside a class is positional, not escaped.
+Any other escape is an error, matching llama.cpp. `\-` is a literal
+hyphen, and inside a class it stays a member, never a range operator, so
+`[a\-z]` holds three characters. A plain hyphen stays positional:
+between two characters it makes a range, and first or last in the class
+it counts as a member.
 
 ### Repetition (postfix)
 

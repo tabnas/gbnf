@@ -80,7 +80,7 @@ That choice has two consequences worth knowing:
 
 ## The parity oracle
 
-`tests/oracle/gbnf-oracle.json` records what `ts/dist` answered for 212
+`tests/oracle/gbnf-oracle.json` records what `ts/dist` answered for 222
 sources. Regenerate it from a BUILT `ts/`:
 
 ```bash

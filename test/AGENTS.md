@@ -2,8 +2,8 @@
 
 `corpus/*.gbnf` holds llama.cpp's own grammars, copied verbatim from
 [`ggml-org/llama.cpp`](https://github.com/ggml-org/llama.cpp/tree/master/grammars)
-at commit `030ebb558a5820b444a8f836ed5cdd46c9b4bd7a` (fetched
-2026-08-11). They are the reference for what real GBNF looks like.
+at commit `81bc6b83f827df746eb129235488d325c49cae52` (release b11200,
+fetched 2026-09-26). They are the reference for what real GBNF looks like.
 
 Unlike the generated corpora in some sibling repos, these files are
 **committed**. There is no fetch script and no `pretest` hook: the whole
@@ -41,15 +41,15 @@ in `ts/test/corpus.test.js`, `go/gbnf_test.go`, `go/clib/value_test.go`,
 `rs/tests/corpus_test.rs` and `py/test_gbnf.py`, and the counts in
 `ts/test/live.test.js`, `go/gbnf_test.go`, `py/test_gbnf.py` and
 `rs/tests/`. The prose states the census in words and in figures, and
-`git grep -n -i -w -E 'eight|seventy|70'` lists every such statement,
+`git grep -n -i -w -E 'eight|seventy|77'` lists every such statement,
 from the root `AGENTS.md` and `README.md` to `docs/index.html`.
 
 A pin already past the latest release tag, on an unreleased upstream
 commit, is fine and stays where it is.
 
 The dialect pin is not a corpus pin. `ts/src/converter.ts` names the
-llama.cpp commit whose `grammars/README.md` dialect this front-end
-implements, `dd1ea524333b1e697489067d7a4c39c60d32beee`, and
+llama.cpp commit whose `grammars/README.md` and grammar parser this
+front-end implements, `81bc6b83f827df746eb129235488d325c49cae52`, and
 `ts/doc/reference.md`, `ts/doc/known-gaps.md` and `rs/README.md` repeat
 it. It moves only when someone re-ports the dialect, not with a corpus
 refresh.

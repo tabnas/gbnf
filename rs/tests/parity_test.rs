@@ -84,9 +84,9 @@ fn both_committed_corpora_are_on_disk_and_read() {
         serde_json::from_str(&std::fs::read_to_string(&live).expect("the live corpus is readable"))
             .expect("the live corpus is JSON");
     assert_eq!(
-        70,
+        77,
         doc["cases"].as_array().map_or(0, Vec::len),
-        "the live corpus is not the seventy cases on record"
+        "the live corpus is not the seventy-seven cases on record"
     );
 }
 

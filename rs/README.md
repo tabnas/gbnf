@@ -91,8 +91,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## The notation
 
-The dialect is llama.cpp's, at commit
-`dd1ea524333b1e697489067d7a4c39c60d32beee`.
+The dialect is llama.cpp's at release b11200, commit
+`81bc6b83f827df746eb129235488d325c49cae52`.
 
 | Construct | Spelling |
 |---|---|
@@ -103,7 +103,7 @@ The dialect is llama.cpp's, at commit
 | literal | `"text"`, case SENSITIVE |
 | character class | `[a-z]`, `[^\n]`, `[-+*/]` |
 | any character | `.` |
-| escapes | `\t \r \n \\ \" \[ \]`, `\xXX`, `\uXXXX`, `\UXXXXXXXX` |
+| escapes | `\t \r \n \\ \" \[ \] \-`, `\xXX`, `\uXXXX`, `\UXXXXXXXX` |
 | repetition | postfix `*`, `+`, `?`, `{m}`, `{m,}`, `{m,n}` |
 | grouping | `( a \| b )` |
 | comment | `#` to the end of the line |
@@ -232,13 +232,13 @@ fn main() {
 ## What is checked
 
 Every grammar in llama.cpp's `grammars/` directory compiles, parses real
-input, and rejects near-miss input. So do the seventy expected outputs of
-llama.cpp's JSON-schema-to-grammar converter. Both corpora are committed
+input, and rejects near-miss input. So do the seventy-seven expected
+outputs of llama.cpp's JSON-schema-to-grammar converter. Both corpora are committed
 under [`../test`](../test) and graded in both directions.
 
 Parity with the canonical TypeScript is measured rather than asserted:
 `tests/oracle_test.rs` holds this crate to what `ts/dist` answered for
-212 sources, source spans, rendered text, and emitted match tokens
+222 sources, source spans, rendered text, and emitted match tokens
 included. Where the two cannot agree, the input is in
 [`../DIVERGENCE.md`](../DIVERGENCE.md) with a measured table, and a test
 in `tests/divergence_test.rs` fails the day the entry stops being true.

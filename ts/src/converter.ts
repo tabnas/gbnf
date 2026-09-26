@@ -28,8 +28,9 @@
  *      is a faithful acceptance test rather than a lenient one — see
  *      `applyExactLexing` and `markClassesEager`.
  *
- *  The dialect implemented is llama.cpp's `grammars/README.md` at commit
- *  dd1ea524333b1e697489067d7a4c39c60d32beee (2026-08-10);
+ *  The dialect implemented is llama.cpp's `grammars/README.md` and
+ *  grammar parser at commit 81bc6b83f827df746eb129235488d325c49cae52
+ *  (release b11200, 2026-09-26);
  *  `doc/known-gaps.md` records where this front-end and llama.cpp's own
  *  parser diverge, and what causes each divergence.
  */
@@ -680,9 +681,11 @@ function requireDefinedRefs(prods: RawProduction[]): void {
 // ---- Terminals -----------------------------------------------------
 
 // The GBNF escape set, exactly as llama.cpp's `parse_char` reads it:
-// `\x` + 2 hex, `\u` + 4 hex, `\U` + 8 hex, plus `\t \r \n \\ \" \[ \]`.
+// `\x` + 2 hex, `\u` + 4 hex, `\U` + 8 hex, plus `\t \r \n \\ \" \[ \] \-`.
 // Anything else is an error there and here — a silently-copied unknown
-// escape would change the accepted language.
+// escape would change the accepted language. `\-` is a literal hyphen,
+// in a string or a class alike; a class reads it as a member, never as
+// a range operator.
 const SIMPLE_ESCAPES: Record<string, string> = {
   t: '\t',
   r: '\r',
@@ -691,6 +694,7 @@ const SIMPLE_ESCAPES: Record<string, string> = {
   '"': '"',
   '[': '[',
   ']': ']',
+  '-': '-',
 }
 
 const HEX_ESCAPES: Record<string, number> = { x: 2, u: 4, U: 8 }
@@ -739,7 +743,7 @@ function readChar(
 
   throw new GbnfParseError(
     `gbnf: unknown escape '\\${mark}' in terminal ${whole}. GBNF ` +
-    `escapes are \\t \\r \\n \\\\ \\" \\[ \\] \\xXX \\uXXXX ` +
+    `escapes are \\t \\r \\n \\\\ \\" \\[ \\] \\- \\xXX \\uXXXX ` +
     `\\UXXXXXXXX.`)
 }
 

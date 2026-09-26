@@ -3,8 +3,8 @@
 `json-schema-corpus.json` holds the expected GBNF outputs of
 llama.cpp's JSON-schema-to-grammar converter, extracted verbatim from
 [`tests/test-json-schema-to-grammar.cpp`](https://github.com/ggml-org/llama.cpp/blob/master/tests/test-json-schema-to-grammar.cpp)
-at commit `030ebb558a5820b444a8f836ed5cdd46c9b4bd7a` (fetched
-2026-08-11). Each of the 70 cases records the case name, the source
+at commit `81bc6b83f827df746eb129235488d325c49cae52` (release b11200, fetched
+2026-09-26). Each of the 77 cases records the case name, the source
 JSON schema, and the grammar the converter is specified to emit.
 
 These are the most common GBNF in the wild: `llama-cpp-python`,

@@ -17,9 +17,10 @@ use tabnas::Value;
 use crate::parser_gbnf::{object, rep_capturing};
 
 /// The GBNF escape set, exactly as llama.cpp's `parse_char` reads it:
-/// `\t \r \n \\ \" \[ \]`. Anything outside this and the hex family is
-/// an error there and here. A silently copied unknown escape would
-/// change the accepted language.
+/// `\t \r \n \\ \" \[ \] \-`. Anything outside this and the hex family
+/// is an error there and here. A silently copied unknown escape would
+/// change the accepted language. `\-` is a literal hyphen, in a string or
+/// a class alike; a class reads it as a member, never as a range operator.
 fn simple_escape(mark: char) -> Option<char> {
     match mark {
         't' => Some('\t'),
@@ -29,6 +30,7 @@ fn simple_escape(mark: char) -> Option<char> {
         '"' => Some('"'),
         '[' => Some('['),
         ']' => Some(']'),
+        '-' => Some('-'),
         _ => None,
     }
 }
@@ -72,7 +74,7 @@ pub(crate) fn read_char(whole: &str, i: usize) -> Result<(u32, usize), String> {
     let Some(digits) = hex_escape(mark) else {
         return Err(format!(
             "gbnf: unknown escape '\\{mark}' in terminal {whole}. GBNF escapes are \
-             \\t \\r \\n \\\\ \\\" \\[ \\] \\xXX \\uXXXX \\UXXXXXXXX."
+             \\t \\r \\n \\\\ \\\" \\[ \\] \\- \\xXX \\uXXXX \\UXXXXXXXX."
         ));
     };
 

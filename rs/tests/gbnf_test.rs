@@ -324,6 +324,23 @@ fn decodes_escapes_inside_a_character_class() {
 }
 
 #[test]
+fn decodes_an_escaped_hyphen_in_a_string_and_in_a_class() {
+    // llama.cpp's parse_char reads `\-` as a hyphen at b11200, the
+    // dialect this front-end implements, and its JSON-schema converter
+    // emits it for a hyphen a pattern escapes.
+    assert_eq!(first_element(r#"root ::= "a\-b""#)["literal"], json!("a-b"));
+    // In a class it is a member, never a range operator.
+    assert_eq!(
+        first_element(r"root ::= [a\-z]")["pattern"],
+        json!(r"[\u0061\u002d\u007a]")
+    );
+    assert_eq!(
+        first_element(r"root ::= [a-z\-]")["pattern"],
+        json!(r"[\u0061-\u007a\u002d]")
+    );
+}
+
+#[test]
 fn rejects_an_unknown_escape() {
     // llama.cpp throws "unknown escape"; copying the character through
     // instead would quietly change the accepted language.

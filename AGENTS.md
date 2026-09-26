@@ -116,7 +116,7 @@ or narrows an accepted language defeats the purpose stated there.
 | [`ts/src/render.ts`](ts/src/render.ts) | `renderGbnf` — the inverse arrow, grammar IR → GBNF text. Fixed point with `parseGbnf`; refuses what GBNF cannot say; expands ABNF's case-insensitive literals exactly. With `@tabnas/abnf` (same IR), the ABNF → GBNF bridge. |
 | [`ts/test/gbnf.test.js`](ts/test/gbnf.test.js) | The main suite: IR shape per construct, escapes, classes, repetition, errors, exact lexing, end-to-end parses, plugin surface. |
 | [`ts/test/corpus.test.js`](ts/test/corpus.test.js) | The llama.cpp conformance corpus — compile-all, plus accept / reject / expected-failure samples. |
-| [`ts/test/live.test.js`](ts/test/live.test.js) | The live corpus — llama.cpp's 70 expected JSON-schema-to-grammar outputs, compiled and parsed. |
+| [`ts/test/live.test.js`](ts/test/live.test.js) | The live corpus — llama.cpp's 77 expected JSON-schema-to-grammar outputs, compiled and parsed. |
 | [`ts/test/cli.test.js`](ts/test/cli.test.js) | The CLI, spawned as a child process — exit codes, both report formats, stdin in both roles, the trailing-newline hint. |
 | [`ts/test/render.test.js`](ts/test/render.test.js) | The renderer — parse→render→parse fixed point over BOTH corpora, the refused constructs, the case-insensitive expansion, the ABNF bridge end to end. |
 | [`ts/test/doc-examples.test.js`](ts/test/doc-examples.test.js) | Runs every ` ```js ` fence in the repo's markdown that carries a `// =>` assertion. |
@@ -134,15 +134,15 @@ or narrows an accepted language defeats the purpose stated there.
 
 **Every grammar in llama.cpp's `grammars/` directory compiles.** Eight
 files, copied verbatim at commit
-`030ebb558a5820b444a8f836ed5cdd46c9b4bd7a`, tracked in
+`81bc6b83f827df746eb129235488d325c49cae52` (release b11200), tracked in
 [`test/corpus/`](test/corpus/) and graded by
 [`ts/test/corpus.test.js`](ts/test/corpus.test.js).
 
 All eight also **parse real input** end to end, and reject near-miss
 invalid input — both directions are graded. A second corpus,
-[`test/live/`](test/live/), holds the 70 expected outputs of
-llama.cpp's JSON-schema-to-grammar converter; all 70 compile, and all
-70 are sampled in both directions, a census the suite itself pins
+[`test/live/`](test/live/), holds the 77 expected outputs of
+llama.cpp's JSON-schema-to-grammar converter; all 77 compile, and all
+77 are sampled in both directions, a census the suite itself pins
 (`ts/test/live.test.js`).
 
 Exactly one sample is recorded as an expected failure:
@@ -324,7 +324,7 @@ What "correct" means here, in order of authority:
 
 1. **Both corpora stay green, in both directions.**
    `ts/test/corpus.test.js` (llama.cpp's eight grammars, census pinned)
-   and `ts/test/live.test.js` (the 70 schema-generated grammars) are the
+   and `ts/test/live.test.js` (the 77 schema-generated grammars) are the
    conformance contract. Never narrow a case to make it green — and an
    expected failure that starts passing is also red: update
    [`ts/doc/known-gaps.md`](ts/doc/known-gaps.md), don't delete the case.

@@ -2,7 +2,7 @@
 // The Rust port of `ts/test/live.test.js` and of `TestLiveCorpusCompiles`
 // in `go/gbnf_test.go`.
 //
-// `test/live/json-schema-corpus.json` holds the 70 expected outputs of
+// `test/live/json-schema-corpus.json` holds the 77 expected outputs of
 // llama.cpp's JSON-schema-to-grammar converter (see the README there for
 // provenance). Two claims are graded:
 //
@@ -222,15 +222,17 @@ const SAMPLES: &[(&str, &[&str], &[&str])] = &[
         &["[12, 99, 207]", "[100, 20, 13, 14]"],
         &["[11, 12, 13]", "[12, 13]"],
     ),
+    // Since b11200 an empty `items` schema admits any value, not only an
+    // object, so a scalar item is inside the language.
     (
         "array with empty items",
-        &["[]", "[{}]", "[{\"a\": 1}, {}]"],
-        &["[1]", "[\"a\"]"],
+        &["[]", "[{}]", "[{\"a\": 1}, {}]", "[1, \"a\", true, null, [2]]"],
+        &["[1,]", "{}"],
     ),
     (
         "array with empty items and prefixItems",
-        &["[]", "[{}]"],
-        &["[true]"],
+        &["[]", "[{}]", "[true, \"a\"]"],
+        &["[true,]", "{}"],
     ),
     (
         "simple regexp",
@@ -377,6 +379,45 @@ const SAMPLES: &[(&str, &[&str], &[&str])] = &[
         &["null", "true", "-1.5e3", "\"x\"", "[1, \"a\"]", "{\"k\": null}"],
         &["nul", "{"],
     ),
+    // Added with the b11200 refresh, all string patterns. Where the
+    // converter cannot express a pattern (an unanchored one, the `\w`
+    // shorthand, a lookahead) it falls back to any string, and it is that
+    // grammar, as everywhere here, that is sampled.
+    (
+        "regexp with non-capturing group",
+        &["\"foobaz\"", "\"barbaz\""],
+        &["\"baz\"", "\"foobar\"", "foobaz"],
+    ),
+    (
+        "regexp with nested non-capturing groups",
+        &["\"d\"", "\"abcd\"", "\"ababcd\""],
+        &["\"cd\"", "\"abd\"", "\"abc\"", "\"\""],
+    ),
+    (
+        "unanchored regexp",
+        &["\"123\"", "\"no digits\"", "\"\""],
+        &["123", "\"unterminated"],
+    ),
+    (
+        "regexp with unsupported shorthand",
+        &["\"123a\"", "\"anything\""],
+        &["123", "\"\\q\""],
+    ),
+    (
+        "regexp with escaped hyphen in a character class",
+        &["\"a-b\"", "\"-\"", "\"abc\""],
+        &["\"\"", "\"A\"", "\"a_b\""],
+    ),
+    (
+        "regexp with escaped hyphen outside a character class",
+        &["\"a-b\""],
+        &["\"ab\"", "\"a\\-b\"", "\"a-bc\""],
+    ),
+    (
+        "unsupported regexp in a property",
+        &["{\"a\": \"a\"}", "{\"a\": \"anything\"}", "{ \"a\" : \"\" }"],
+        &["{}", "{\"b\": \"a\"}", "{\"a\": 1}"],
+    ),
 ];
 
 /// The corpus cases, as (name, grammar) pairs, in file order.
@@ -439,18 +480,18 @@ fn every_live_case_parses_its_samples_in_both_directions() {
 }
 
 #[test]
-fn the_live_corpus_is_exactly_the_seventy_cases_on_record() {
+fn the_live_corpus_is_exactly_the_seventy_seven_cases_on_record() {
     // The census is pinned, the way corpus_test.rs pins its grammar list.
     // Both loops above iterate the corpus, so a case quietly vanishing
     // from the JSON would leave the suite green while shrinking the
     // coverage this file's headline number claims. The uniqueness half
     // catches a duplicated name, which would otherwise hold the count at
-    // seventy while losing a case.
+    // seventy-seven while losing a case.
     let cases = cases();
-    assert_eq!(cases.len(), 70);
+    assert_eq!(cases.len(), 77);
     let names: std::collections::BTreeSet<&str> =
         cases.iter().map(|(name, _)| name.as_str()).collect();
-    assert_eq!(names.len(), 70);
+    assert_eq!(names.len(), 77);
 }
 
 #[test]

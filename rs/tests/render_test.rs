@@ -228,7 +228,7 @@ fn fixed_point_over_the_conformance_corpus() {
 fn fixed_point_over_the_live_corpus() {
     let corpus = live_corpus();
     let cases = corpus["cases"].as_array().expect("the cases array");
-    assert_eq!(cases.len(), 70);
+    assert_eq!(cases.len(), 77);
     for case in cases {
         let name = case["name"].as_str().unwrap_or_default();
         let grammar = case["grammar"].as_str().unwrap_or_default();
