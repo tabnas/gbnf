@@ -73,7 +73,7 @@ pub type GbnfGrammar = Grammar;
 /// release orchestrator rewrites both, and `tests/version_test.rs` fails
 /// the build if they drift. Mirrors `VERSION` in `ts/src/gbnf.ts` and
 /// `const VERSION` in `go/gbnf.go`.
-pub const VERSION: &str = "0.1.11";
+pub const VERSION: &str = "0.1.12";
 
 /// The group tag stamped on every emitted alt, and the prefix of every
 /// diagnostic this crate raises.
