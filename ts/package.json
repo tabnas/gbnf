@@ -1,6 +1,6 @@
 {
   "name": "@tabnas/gbnf",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "main": "dist/gbnf.js",
   "type": "commonjs",
   "types": "dist/gbnf.d.ts",
@@ -50,12 +50,12 @@
     ".": "./dist/gbnf.js"
   },
   "peerDependencies": {
-    "@tabnas/bnf": ">=0.1.16",
-    "@tabnas/parser": ">=0.5.0"
+    "@tabnas/bnf": ">=0.1.22",
+    "@tabnas/parser": ">=0.12.4"
   },
   "devDependencies": {
     "@tabnas/abnf": "^0.4.15",
-    "@tabnas/bnf": "^0.1.19",
+    "@tabnas/bnf": "^0.1.22",
     "@tabnas/debug": "*",
     "@tabnas/parser": "*",
     "@tabnas/railroad": "*",

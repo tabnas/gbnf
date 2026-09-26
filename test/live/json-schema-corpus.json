@@ -1,6 +1,6 @@
 {
  "source": "ggml-org/llama.cpp tests/test-json-schema-to-grammar.cpp",
- "commit": "030ebb558a5820b444a8f836ed5cdd46c9b4bd7a",
+ "commit": "81bc6b83f827df746eb129235488d325c49cae52",
  "license": "MIT (llama.cpp)",
  "note": "Expected GBNF outputs of llama.cpp's JSON-schema-to-grammar converter, verbatim. The most common real-world GBNF: what tools actually feed a sampler.",
  "cases": [
@@ -167,12 +167,12 @@
   {
    "name": "array with empty items",
    "schema": "{\n            \"type\": \"array\",\n            \"items\": {}\n        }",
-   "grammar": "            array ::= \"[\" space ( value (\",\" space value)* )? space \"]\"\n            boolean ::= (\"true\" | \"false\")\n            char ::= [^\"\\\\\\x7F\\x00-\\x1F] | [\\\\] ([\"\\\\bfnrt] | \"u\" [0-9a-fA-F]{4})\n            decimal-part ::= [0-9]{1,16}\n            integral-part ::= [0] | [1-9] [0-9]{0,15}\n            item ::= object\n            null ::= \"null\"\n            number ::= (\"-\"? integral-part) (\".\" decimal-part)? ([eE] [-+]? integral-part)?\n            object ::= \"{\" space ( string \":\" space value (\",\" space string \":\" space value)* )? space \"}\"\n            root ::= \"[\" space (item (\",\" space item)*)? space \"]\"\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n            string ::= \"\\\"\" char* \"\\\"\"\n            value ::= object | array | string | number | boolean | null\n        "
+   "grammar": "            array ::= \"[\" space ( value (\",\" space value)* )? space \"]\"\n            boolean ::= (\"true\" | \"false\")\n            char ::= [^\"\\\\\\x7F\\x00-\\x1F] | [\\\\] ([\"\\\\bfnrt] | \"u\" [0-9a-fA-F]{4})\n            decimal-part ::= [0-9]{1,16}\n            integral-part ::= [0] | [1-9] [0-9]{0,15}\n            null ::= \"null\"\n            number ::= (\"-\"? integral-part) (\".\" decimal-part)? ([eE] [-+]? integral-part)?\n            object ::= \"{\" space ( string \":\" space value (\",\" space string \":\" space value)* )? space \"}\"\n            root ::= \"[\" space ( value (\",\" space value)* )? space \"]\"\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n            string ::= \"\\\"\" char* \"\\\"\"\n            value ::= object | array | string | number | boolean | null\n        "
   },
   {
    "name": "array with empty items and prefixItems",
    "schema": "{\n            \"type\": \"array\",\n            \"items\": {},\n            \"prefixItems\": { \"type\": \"string\" }\n        }",
-   "grammar": "            array ::= \"[\" space ( value (\",\" space value)* )? space \"]\"\n            boolean ::= (\"true\" | \"false\")\n            char ::= [^\"\\\\\\x7F\\x00-\\x1F] | [\\\\] ([\"\\\\bfnrt] | \"u\" [0-9a-fA-F]{4})\n            decimal-part ::= [0-9]{1,16}\n            integral-part ::= [0] | [1-9] [0-9]{0,15}\n            item ::= object\n            null ::= \"null\"\n            number ::= (\"-\"? integral-part) (\".\" decimal-part)? ([eE] [-+]? integral-part)?\n            object ::= \"{\" space ( string \":\" space value (\",\" space string \":\" space value)* )? space \"}\"\n            root ::= \"[\" space (item (\",\" space item)*)? space \"]\"\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n            string ::= \"\\\"\" char* \"\\\"\"\n            value ::= object | array | string | number | boolean | null\n        "
+   "grammar": "            array ::= \"[\" space ( value (\",\" space value)* )? space \"]\"\n            boolean ::= (\"true\" | \"false\")\n            char ::= [^\"\\\\\\x7F\\x00-\\x1F] | [\\\\] ([\"\\\\bfnrt] | \"u\" [0-9a-fA-F]{4})\n            decimal-part ::= [0-9]{1,16}\n            integral-part ::= [0] | [1-9] [0-9]{0,15}\n            null ::= \"null\"\n            number ::= (\"-\"? integral-part) (\".\" decimal-part)? ([eE] [-+]? integral-part)?\n            object ::= \"{\" space ( string \":\" space value (\",\" space string \":\" space value)* )? space \"}\"\n            root ::= \"[\" space ( value (\",\" space value)* )? space \"]\"\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n            string ::= \"\\\"\" char* \"\\\"\"\n            value ::= object | array | string | number | boolean | null\n        "
   },
   {
    "name": "number",
@@ -277,7 +277,7 @@
   {
    "name": "empty w/o additional props",
    "schema": "{\n            \"type\": \"object\",\n            \"additionalProperties\": false\n        }",
-   "grammar": "            root ::= \"{\" space  space \"}\"\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n        "
+   "grammar": "            root ::= \"{\" space \"}\"\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n        "
   },
   {
    "name": "required + additional props",
@@ -353,6 +353,41 @@
    "name": "literal string with escapes",
    "schema": "{\n            \"properties\": {\n                \"code\": {\n                    \"const\": \" \\r \\n \\\" \\\\ \",\n                    \"description\": \"Generated code\",\n                    \"title\": \"Code\",\n                    \"type\": \"string\"\n                }\n            },\n            \"required\": [\n                \"code\"\n            ],\n            \"title\": \"DecoderResponse\",\n            \"type\": \"object\"\n        }",
    "grammar": "            code ::= \"\\\" \\\\r \\\\n \\\\\\\" \\\\\\\\ \\\"\"\n            code-kv ::= \"\\\"code\\\"\" space \":\" space code\n            root ::= \"{\" space code-kv space \"}\"\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n        "
+  },
+  {
+   "name": "regexp with non-capturing group",
+   "schema": "{\n            \"type\": \"string\",\n            \"pattern\": \"^(?:foo|bar)baz$\"\n        }",
+   "grammar": "            root ::= \"\\\"\" ((\"foo\" | \"bar\") \"baz\") \"\\\"\"\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n        "
+  },
+  {
+   "name": "regexp with nested non-capturing groups",
+   "schema": "{\n            \"type\": \"string\",\n            \"pattern\": \"^(?:(?:ab)+c)?d$\"\n        }",
+   "grammar": "            root ::= \"\\\"\" (((\"ab\")+ \"c\")? \"d\") \"\\\"\"\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n        "
+  },
+  {
+   "name": "unanchored regexp",
+   "schema": "{\n            \"type\": \"string\",\n            \"pattern\": \"[0-9]+\"\n        }",
+   "grammar": "            char ::= [^\"\\\\\\x7F\\x00-\\x1F] | [\\\\] ([\"\\\\bfnrt] | \"u\" [0-9a-fA-F]{4})\n            root ::= string\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n            string ::= \"\\\"\" char* \"\\\"\"\n        "
+  },
+  {
+   "name": "regexp with unsupported shorthand",
+   "schema": "{\n            \"type\": \"string\",\n            \"pattern\": \"^[0-9]{3}\\\\w$\"\n        }",
+   "grammar": "            char ::= [^\"\\\\\\x7F\\x00-\\x1F] | [\\\\] ([\"\\\\bfnrt] | \"u\" [0-9a-fA-F]{4})\n            root ::= string\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n            string ::= \"\\\"\" char* \"\\\"\"\n        "
+  },
+  {
+   "name": "regexp with escaped hyphen in a character class",
+   "schema": "{\n            \"type\": \"string\",\n            \"pattern\": \"^[a-z\\\\-]+$\"\n        }",
+   "grammar": "            root ::= \"\\\"\" ([a-z\\-]+) \"\\\"\"\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n        "
+  },
+  {
+   "name": "regexp with escaped hyphen outside a character class",
+   "schema": "{\n            \"type\": \"string\",\n            \"pattern\": \"^a\\\\-b$\"\n        }",
+   "grammar": "            root ::= \"\\\"\" (\"a\\-b\") \"\\\"\"\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n        "
+  },
+  {
+   "name": "unsupported regexp in a property",
+   "schema": "{\n            \"type\": \"object\",\n            \"properties\": {\n                \"a\": { \"type\": \"string\", \"pattern\": \"^(?=a)a$\" }\n            },\n            \"required\": [\"a\"],\n            \"additionalProperties\": false\n        }",
+   "grammar": "            a ::= string\n            a-kv ::= \"\\\"a\\\"\" space \":\" space a\n            char ::= [^\"\\\\\\x7F\\x00-\\x1F] | [\\\\] ([\"\\\\bfnrt] | \"u\" [0-9a-fA-F]{4})\n            root ::= \"{\" space a-kv space \"}\"\n            space ::= | \" \" | \"\\n\"{1,2} [ \\t]{0,20}\n            string ::= \"\\\"\" char* \"\\\"\"\n        "
   }
  ]
 }

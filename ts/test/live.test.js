@@ -2,7 +2,7 @@
 
 /*  live.test.js — schema-generated GBNF, the kind tools actually emit.
  *
- *  `test/live/json-schema-corpus.json` holds the 70 expected outputs of
+ *  `test/live/json-schema-corpus.json` holds the 77 expected outputs of
  *  llama.cpp's JSON-schema-to-grammar converter (see the README there
  *  for provenance). Two claims are graded:
  *
@@ -101,11 +101,16 @@ const SAMPLES = {
   },
   // `items: {}` lowers to `item ::= object`, so only objects are in
   // the language — read off the grammar, as ever.
+  // Since b11200 an empty `items` schema admits any value, not only an
+  // object, so a scalar item is inside the language.
   'array with empty items': {
-    yes: ['[]', '[{}]', '[{"a": 1}, {}]'],
-    no: ['[1]', '["a"]'],
+    yes: ['[]', '[{}]', '[{"a": 1}, {}]', '[1, "a", true, null, [2]]'],
+    no: ['[1,]', '{}'],
   },
-  'array with empty items and prefixItems': { yes: ['[]', '[{}]'], no: ['[true]'] },
+  'array with empty items and prefixItems': {
+    yes: ['[]', '[{}]', '[true, "a"]'],
+    no: ['[true,]', '{}'],
+  },
   'simple regexp': { yes: ['"abefgkl"', '"abcddefggghijkl"'], no: ['"ab"'] },
   'regexp quote': { yes: ['"""'], no: ['""', '"a"'] },
   'regexp escapes': { yes: ['"[]{}()|+*?"'], no: ['"[]{}()|+*"'] },
@@ -204,6 +209,38 @@ const SAMPLES = {
     yes: ['null', 'true', '-1.5e3', '"x"', '[1, "a"]', '{"k": null}'],
     no: ['nul', '{'],
   },
+  // Added with the b11200 refresh, all string patterns. Where the
+  // converter cannot express a pattern (an unanchored one, the `\w`
+  // shorthand, a lookahead) it falls back to any string, and it is that
+  // grammar, as everywhere here, that is sampled.
+  'regexp with non-capturing group': {
+    yes: ['"foobaz"', '"barbaz"'],
+    no: ['"baz"', '"foobar"', 'foobaz'],
+  },
+  'regexp with nested non-capturing groups': {
+    yes: ['"d"', '"abcd"', '"ababcd"'],
+    no: ['"cd"', '"abd"', '"abc"', '""'],
+  },
+  'unanchored regexp': {
+    yes: ['"123"', '"no digits"', '""'],
+    no: ['123', '"unterminated'],
+  },
+  'regexp with unsupported shorthand': {
+    yes: ['"123a"', '"anything"'],
+    no: ['123', '"\\q"'],
+  },
+  'regexp with escaped hyphen in a character class': {
+    yes: ['"a-b"', '"-"', '"abc"'],
+    no: ['""', '"A"', '"a_b"'],
+  },
+  'regexp with escaped hyphen outside a character class': {
+    yes: ['"a-b"'],
+    no: ['"ab"', '"a\\-b"', '"a-bc"'],
+  },
+  'unsupported regexp in a property': {
+    yes: ['{"a": "a"}', '{"a": "anything"}', '{ "a" : "" }'],
+    no: ['{}', '{"b": "a"}', '{"a": 1}'],
+  },
 }
 
 
@@ -246,10 +283,10 @@ describe('live', () => {
   // from the JSON would emit one fewer test and leave the suite green —
   // shrinking the coverage this file's headline number claims. The
   // uniqueness half catches a duplicated name, which would otherwise
-  // hold the count at 70 while losing a case.
-  it('the live corpus is exactly the 70 cases on record', () => {
-    assert.equal(CORPUS.cases.length, 70)
-    assert.equal(new Set(CORPUS.cases.map((c) => c.name)).size, 70)
+  // hold the count at 77 while losing a case.
+  it('the live corpus is exactly the 77 cases on record', () => {
+    assert.equal(CORPUS.cases.length, 77)
+    assert.equal(new Set(CORPUS.cases.map((c) => c.name)).size, 77)
   })
 
 

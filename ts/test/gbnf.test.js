@@ -344,6 +344,25 @@ describe('gbnf', () => {
     })
 
 
+    it('decodes \\- as a literal hyphen, in a string and in a class', () => {
+      // llama.cpp's parse_char reads `\-` as a hyphen at b11200, the
+      // dialect this front-end implements, and its JSON-schema converter
+      // emits it for a hyphen a pattern escapes (the live cases
+      // 'regexp with escaped hyphen …').
+      assert.equal(
+        parseGbnf('root ::= "a\\-b"').productions[0].alts[0][0].literal,
+        'a-b')
+      // In a class it is a member, never a range operator: `[a\-z]` is
+      // three members, and `[a-z\-]` a range and a hyphen.
+      assert.equal(
+        parseGbnf('root ::= [a\\-z]').productions[0].alts[0][0].pattern,
+        '[\\u0061\\u002d\\u007a]')
+      assert.equal(
+        parseGbnf('root ::= [a-z\\-]').productions[0].alts[0][0].pattern,
+        '[\\u0061-\\u007a\\u002d]')
+    })
+
+
     it('rejects an unknown escape', () => {
       // llama.cpp throws "unknown escape"; copying the character
       // through instead would quietly change the accepted language.

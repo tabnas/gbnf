@@ -115,7 +115,7 @@ rejected // => true
 ```
 
 Inside a literal, the escapes are `\n`, `\r`, `\t`, `\\`, `\"`, `\[`,
-`\]`, `\xXX`, `\uXXXX` and `\UXXXXXXXX`. Anything else is an error, not
+`\]`, `\-`, `\xXX`, `\uXXXX` and `\UXXXXXXXX`. Anything else is an error, not
 a character copied through, because an unknown escape silently changing the
 accepted language is exactly the failure an offline validator exists to
 prevent.
@@ -258,9 +258,9 @@ into [`test/corpus/`](test/corpus/): `json.gbnf`, `json_arr.gbnf`,
 real input, and all eight reject near-miss invalid input:
 `ts/test/corpus.test.js` grades both directions.
 
-A second corpus in [`test/live/`](test/live/) holds the 70 expected
+A second corpus in [`test/live/`](test/live/) holds the 77 expected
 outputs of llama.cpp's JSON-schema-to-grammar converter, the shape
-tools actually feed a sampler. All 70 compile, and every one is graded
+tools actually feed a sampler. All 77 compile, and every one is graded
 in both directions: accepts valid JSON, rejects near-miss invalid.
 
 One sample remains out of reach: chess's `Nf3`, whose stacked optional
@@ -292,7 +292,7 @@ arrow's output needs to behave scannerlessly.
 |---|---|
 | [`ts/`](ts/) | TypeScript / JavaScript (`@tabnas/gbnf`). Canonical. |
 | [`go/`](go/) | The Go port of the front-end. Reads `.gbnf` text, compiles the whole corpus, and grades accept/reject on all eight grammars, agreeing with TypeScript in both directions. See [`go/README.md`](go/README.md). |
-| [`rs/`](rs/) | The Rust port (`tabnas-gbnf`). The front-end, the renderer and the `gbnf-check` command, graded against both corpora and against the canonical TypeScript itself over 212 sources. See [`rs/README.md`](rs/README.md). |
+| [`rs/`](rs/) | The Rust port (`tabnas-gbnf`). The front-end, the renderer and the `gbnf-check` command, graded against both corpora and against the canonical TypeScript itself over 222 sources. See [`rs/README.md`](rs/README.md). |
 
 ## Documentation
 

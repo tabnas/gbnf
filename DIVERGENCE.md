@@ -10,9 +10,9 @@ deleted, and the test that pins it fails until it is, so this file
 cannot go stale without the suite saying so.
 
 The DIALECT is not a divergence. The IR the Rust front-end builds is
-held to the TypeScript front-end's own output over a 212 source corpus
+held to the TypeScript front-end's own output over a 222 source corpus
 (every construct the notation has, every refusal, all eight llama.cpp
-grammars and all seventy schema-generated ones) by
+grammars and all seventy-seven schema-generated ones) by
 [`rs/tests/oracle_test.rs`](rs/tests/oracle_test.rs), source spans,
 rendered text, emitted match tokens and rule names included. What is
 below is what that comparison had to set aside, and why.

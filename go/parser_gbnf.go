@@ -48,10 +48,12 @@ import (
 	tabnas "github.com/tabnas/parser/go"
 )
 
-// GBNF's escape vocabulary, exactly as llama.cpp defines it.
+// GBNF's escape vocabulary, exactly as llama.cpp defines it. `\-` is a
+// literal hyphen, in a string or a class alike; a class reads it as a
+// member, never as a range operator.
 var simpleEscapes = map[byte]rune{
 	't': '\t', 'r': '\r', 'n': '\n',
-	'\\': '\\', '"': '"', '[': '[', ']': ']',
+	'\\': '\\', '"': '"', '[': '[', ']': ']', '-': '-',
 }
 
 var hexEscapes = map[byte]int{'x': 2, 'u': 4, 'U': 8}
@@ -164,7 +166,7 @@ func readChar(whole string, i int) (rune, int, error) {
 	}
 	return 0, 0, fmt.Errorf(
 		"unknown escape '\\%c' in terminal %s. GBNF escapes are "+
-			`\t \r \n \\ \" \[ \] \xXX \uXXXX \UXXXXXXXX`, mark, whole)
+			`\t \r \n \\ \" \[ \] \- \xXX \uXXXX \UXXXXXXXX`, mark, whole)
 }
 
 func allHex(s string) bool {

@@ -29,7 +29,7 @@ pub fn load(name: &str) -> String {
         .unwrap_or_else(|error| panic!("cannot read {name}.gbnf: {error}"))
 }
 
-/// The live corpus: the 70 expected outputs of llama.cpp's
+/// The live corpus: the 77 expected outputs of llama.cpp's
 /// JSON-schema-to-grammar converter.
 pub fn live_corpus() -> Json {
     let path = repo_root()

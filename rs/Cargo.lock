@@ -173,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "tabnas-bnf"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "indexmap",
  "regex",
@@ -184,7 +184,7 @@ dependencies = [
 
 [[package]]
 name = "tabnas-gbnf"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "indexmap",
  "regex",

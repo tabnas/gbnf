@@ -7,8 +7,8 @@ would have to live. Nothing here is a bug in the notation front-end
 alone; most of it is the seam between a **scannerless** notation and a
 **tokenising** engine.
 
-The dialect implemented is llama.cpp's `grammars/README.md` at commit
-`dd1ea524333b1e697489067d7a4c39c60d32beee` (2026-08-10).
+The dialect implemented is llama.cpp's `grammars/README.md` and grammar
+parser at commit `81bc6b83f827df746eb129235488d325c49cae52` (release b11200, 2026-09-26).
 
 ---
 
