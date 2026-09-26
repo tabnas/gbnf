@@ -24,8 +24,8 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	plug "github.com/tabnas/gbnf/go"
 	host "github.com/tabnas/bnf/go"
+	plug "github.com/tabnas/gbnf/go"
 )
 
 const (
@@ -86,7 +86,17 @@ var _ = &sharedMu // referenced only by opt-in constructs
 // ignore it; a row that defines options must validate it here, since
 // nothing upstream does.
 func newParser(opts string) (parseFn, error) {
-	return func(src string) (any, error) { spec, err := plug.Gbnf(src, &plug.ConvertOptions{Builtins: true}); if err != nil { return nil, err }; data, err := host.ToRecognitionSpec(spec); if err != nil { return nil, err }; return json.RawMessage(host.ToJsonic(data, true, 0)), nil }, nil
+	return func(src string) (any, error) {
+		spec, err := plug.Gbnf(src, &plug.ConvertOptions{Builtins: true})
+		if err != nil {
+			return nil, err
+		}
+		data, err := host.ToRecognitionSpec(spec)
+		if err != nil {
+			return nil, err
+		}
+		return json.RawMessage(host.ToJsonic(data, true, 0)), nil
+	}, nil
 }
 
 // reply marshals a result document. Marshalling cannot fail for the
