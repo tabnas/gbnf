@@ -83,6 +83,50 @@ both directions (`parseGbnf` / `renderGbnf`) — and the lexer settings
 the emitted spec carries, because scannerlessness is a property of the
 notation rather than of the IR.
 
+**Repetition is replacement, never a push chain.** The arrow above also
+decides who owns a loop. A tabnas alternate either pushes a child rule
+(`p:`), which opens a new stack frame that closes when the child does,
+or replaces the current rule (`r:`), which re-enters a rule in the same
+frame. Push is for structure, a child the tree has to nest; replace is
+for sequence, the next item of a list. A postfix run — `*`, `+`, `{m,}`
+— is sequence, so every `star`, `plus` and unbounded `rep` this
+front-end hands over has to come back from `@tabnas/bnf` as a
+same-depth `r` loop (the item inside it may push; the loop itself never
+does), and rule depth — `d` on every engine rule, the depth it was
+pushed at — stays bounded by the grammar's nesting and never by the
+input's length. (A closed `{m,n}` nests at most `n - m` optionals, which
+is the grammar's own bound.) A helper spelled as right recursion,
+`H = inner H / ε` with a fresh `H` per item, parses the same input and
+is still wrong: `root ::= line*` over a few thousand lines costs a frame
+per line, climbs past the engine's depth guard and the hosts' (aless
+refuses past 3,000 open rules), grows the rule stack and memory with the
+line count, and builds a `kids` chain nested where the source is flat.
+That is what bnf's `desugar` emitted in all three runtimes when this
+rule was written down (2026-09-27); the compiler contract that replaces
+it is recorded in bnf's guide under this same title, and it is bnf's to
+keep.
+
+What follows for this repository is a boundary, not a fix. The
+front-end lowers a postfix run to an IR element and stops there —
+`applyPostfix` and `repeat` in `ts/src/converter.ts`, the same two in
+`go/parser_gbnf.go`, `apply_postfix` and `repeat` in
+`rs/src/terminal.rs` — and never emits a repetition itself, in a pass of
+its own or as a workaround while the compiler is repaired: rule 2 under
+"Authority and alignment rules" already forbids rewriting the IR into a
+shape the grammar did not say, and a depth problem in an emitted spec is
+fixed upstream, in `desugar`. The one grammar this repo does write by
+hand, the meta-grammar that reads GBNF text (`gbnfRules`; see "Design
+notes for the meta-grammar"), keeps to the same rule in all three
+runtimes: `prod` takes the next production by `r: 'prod'`, and `alts`
+pushes one `seq` per `|` and `seq` one `elem` per element, each from
+its close state, getting the frame back every time, so a grammar file
+of any length is read at one depth. The depth guarantee is bnf's to give
+and this suite's to check on a long input, in GBNF's own notation, so
+that a regression in the shared compiler shows up here as a GBNF
+failure. Rule depth over a repetition is constant; a test that repeats
+an item ten thousand times and asserts the maximum `d` stays what a
+single item needs is the proof.
+
 **The value proposition**: GBNF is consumed by llama.cpp, XGrammar (and
 therefore vLLM and SGLang), KoboldCpp, LocalAI and node-llama-cpp, and
 none of them can answer "does this string match my grammar?" without a
