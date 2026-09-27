@@ -84,17 +84,17 @@ the emitted spec carries, because scannerlessness is a property of the
 notation rather than of the IR.
 
 **Repetition is replacement, never a push chain.** The arrow above also
-decides who owns a loop. A tabnas alternate either pushes a child rule
-(`p:`), which opens a new stack frame that closes when the child does,
-or replaces the current rule (`r:`), which re-enters a rule in the same
-frame. Push is for structure, a child the tree has to nest; replace is
+decides who owns a loop. When a tabnas alternate hands control to another rule, it either
+pushes a child rule (`p:`), which opens a new stack frame that closes
+when the child does, or replaces the current rule (`r:`), which
+re-enters a rule in the same frame; a terminal-only or closing
+alternate does neither. Push is for structure, a child the tree has to nest; replace is
 for sequence, the next item of a list. A postfix run — `*`, `+`, `{m,}`
 — is sequence, so every `star`, `plus` and unbounded `rep` this
 front-end hands over has to come back from `@tabnas/bnf` as a
 same-depth `r` loop (the item inside it may push; the loop itself never
-does), and rule depth — `d` on every engine rule, the depth it was
-pushed at — stays bounded by the grammar's nesting and never by the
-input's length. (A closed `{m,n}` nests at most `n - m` optionals, which
+does), and the loop's iterations add nothing to rule depth — `d` on
+every engine rule, the depth it was pushed at. Real recursion still nests with its input, as it should: a grammar with `node = "(" node ")" / "x"` is as deep as its brackets. What a repetition may never do is make rule depth grow with a list's length. (A closed `{m,n}` nests at most `n - m` optionals, which
 is the grammar's own bound.) A helper spelled as right recursion,
 `H = inner H / ε` with a fresh `H` per item, parses the same input and
 is still wrong: `root ::= line*` over a few thousand lines costs a frame
