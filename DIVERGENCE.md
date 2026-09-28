@@ -38,7 +38,6 @@ so a table that grows a row without growing a pin is visible:
 |---|---|
 | 1 | `an_unpaired_surrogate_escape_is_refused_by_name`, `a_surrogate_pair_is_the_character_it_names`, `a_surrogate_pair_inside_a_class_is_still_two_members`, and the `unrepresentable` arm of `rs/tests/oracle_test.rs` |
 | 2 | `a_span_after_an_astral_character_is_in_this_runtimes_units`, `an_ascii_span_is_the_same_number_in_both_runtimes`, and `the_column_the_engine_reports_counts_characters` in `rs/tests/oracle_test.rs` |
-| 3 | `a_repetition_is_super_linear_until_the_compiler_emits_a_loop` |
 | 4 | `the_nesting_cap_falls_exactly_where_the_shared_compiler_does`, `nesting_far_past_the_cap_is_a_diagnostic`, `the_nesting_cap_falls_where_the_recorded_table_says` |
 | 5 | `an_engine_message_quotes_a_whole_astral_character` |
 | 6 | `an_oversized_repetition_count_saturates` |
@@ -46,6 +45,14 @@ so a table that grows a row without growing a pin is visible:
 Each pin was bite-checked: the expectation was altered and the case
 watched go red. A row whose expectation is the same as the canonical's
 is not a pin.
+
+Entry 3, a repetition parsing in time quadratic in the input length,
+closed when [tabnas/bnf#80](https://github.com/tabnas/bnf/pull/80) made
+every repetition the shared compiler emits a same-depth replace loop;
+its pin followed the compiler it was built against and took the linear
+side, and `rs/tests/perf_test.rs` now holds that side as a standing
+check (`a_repetition_adds_no_rule_depth_and_parses_in_linear_time`). The
+entries after it keep their numbers, which other repositories cite.
 
 ## 1. An unpaired surrogate escape
 
@@ -114,71 +121,6 @@ which is what a consumer wants and what
 [`rs/tests/spans_test.rs`](rs/tests/spans_test.rs) and the oracle both
 assert. A consumer that treats a span offset as a UTF-16 index, or a
 column as a UTF-16 column, is the case this entry exists to warn.
-
-## 3. A repetition parses in time quadratic in the input length
-
-`root ::= [a-z]+` against a run of `a`, compiled once and parsed
-repeatedly. TypeScript and Go are linear in the input length; this port
-is quadratic, four times the work for twice the input.
-
-| input | TypeScript | Go | Rust |
-|---|---|---|---|
-| 250 | 12 ms | 0.5 ms | 60 ms |
-| 500 | 20 ms | 1.1 ms | 226 ms |
-| 1000 | 41 ms | 2.5 ms | 914 ms |
-| 2000 | 128 ms | 35 ms | 3.35 s |
-| 4000 | 123 ms | 36 ms | 13.4 s |
-| 8000 | 119 ms | 61 ms | 96 s |
-| 16000 | 93 ms | 160 ms | 390 s |
-
-Measured on the unoptimised profile, which is what the test suite runs;
-an optimised build is faster by a constant and has the same shape. The
-last two Rust rows were timed through `gbnf-check` rather than in a test
-harness, on a machine doing other work, so read them for their ratio
-rather than their absolute value. The ratio is the finding either way,
-and it holds from one end of the table to the other: each doubling of
-the input multiplies the work by four.
-
-**This is not in this crate.** Three measurements place it below the
-front-end:
-
-- the bare engine parsing its OWN default grammar is linear and fast
-  (4000 array elements in 0.4 ms), so it is not the engine's core;
-- the ABNF front-end, which shares nothing with this one but
-  `tabnas-bnf` and the engine, is quadratic on the same shape
-  (`top = 1*%x61-7A`, 2000 characters, 3.3 s);
-- switching off negotiated lexing (`lex.relex`), which is this
-  front-end's own setting and which neither ABNF nor the engine uses,
-  changes nothing (2000 characters, 3.43 s against 3.53 s).
-
-What is left is the repetition the shared compiler emits: the helper
-rules `tabnas-bnf` desugars `*`, `+` and `{m,n}` into, as the Rust
-engine runs them.
-
-**Owner.** [`tabnas-bnf`](https://github.com/tabnas/bnf), in its Rust
-port, with [`tabnas`](https://github.com/tabnas/parser) if the cost
-turns out to be in how the engine runs those rules rather than in their
-shape. This repository cannot fix it: the emission is not its to change
-(`AGENTS.md`, "Authority and alignment rules", rule 2).
-
-**What it costs here.** `gbnf-check` on a sample of a few thousand
-characters is slow rather than wrong; on a five-figure sample it is
-minutes rather than milliseconds, which for a command in a build script
-is a hang by any other name. The untrusted-input suite states the ceiling it tests to rather
-than pretending the ceiling is not there, and
-`rs/tests/divergence_test.rs` measures the ratio so that the day the
-emission is fixed, this entry fails and gets deleted.
-
-**Closing.** [tabnas/bnf#80](https://github.com/tabnas/bnf/pull/80)
-compiles every repetition to a same-depth replace loop, in all three
-runtimes. Built against it, this port is linear here: four times the
-input costs four times the work, where it cost sixteen. Each repository
-tests the other at its default branch, so the pin follows the compiler
-it is built against. It reads the emitted rules: while no alternate
-replaces, it asserts the quadratic side as above, and once the loop is
-emitted it asserts the linear side. When `tabnas-bnf`'s main emits the
-loop, delete this entry and its pin, and raise the ceilings in
-`rs/tests/untrusted_test.rs`.
 
 ## 4. Deep nesting is refused, where TypeScript compiles it
 

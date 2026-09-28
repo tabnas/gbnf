@@ -260,15 +260,15 @@ fn a_very_long_character_class_compiles() {
 
 #[test]
 fn a_long_input_parses_without_hanging() {
-    // The length here is deliberately modest, and that is a FINDING
-    // rather than a convenience. A repetition emitted by the shared
-    // compiler parses in time quadratic in the input length in this
-    // runtime, where the canonical TypeScript is linear: see
-    // DIVERGENCE.md 3, which measures both and names the owner. Until
-    // that closes, a five-figure input is not a test, it is a hang, and
-    // the bound below would be the only thing reporting it.
+    // A repetition parses in time linear in the input length and at one
+    // rule depth, whatever the length (`tests/perf_test.rs` holds the
+    // ratio and the depth), so a six-figure sample is a test and not a
+    // hang. It was held to four figures while the shared compiler spelled
+    // a repetition as a push chain, which parsed in quadratic time here
+    // (DIVERGENCE.md 3, closed by tabnas/bnf#80). The budget is generous
+    // on purpose: it reports a hang, not a slow machine.
     let parser = compile("root ::= [a-z]+");
-    for length in [1_000usize, 2_000] {
+    for length in [10_000usize, 100_000] {
         let input = "a".repeat(length);
         let started = Instant::now();
         assert!(parser.parse(&input).is_ok(), "{length} characters");
@@ -282,11 +282,11 @@ fn a_long_input_parses_without_hanging() {
 
 #[test]
 fn a_deeply_nested_input_is_refused_rather_than_aborting() {
-    // The GRAMMAR is shallow; the INPUT is not. The engine's rule stack
-    // grows with the input here, and the tree it would build nests with
-    // it, so the parse must reach an ANSWER rather than run the stack
-    // out. The depth is kept to four figures for the reason the case
-    // above states.
+    // The GRAMMAR is shallow; the INPUT is not. This is real recursion,
+    // not a repetition: the engine's rule stack grows with the brackets,
+    // and the tree it would build nests with them, so the parse must
+    // reach an ANSWER rather than run the stack out. Four figures of
+    // nesting is what the case needs to show that.
     let parser = compile("root ::= \"[\" root \"]\" | \"x\"");
     assert!(parser.parse("[[[x]]]").is_ok());
     let deep = format!("{}x{}", "[".repeat(2_000), "]".repeat(2_000));

@@ -199,11 +199,9 @@ cargo fmt --check
 `ci/rust/run.sh` is the full gate, including the lockfile check, and is
 what `.github/workflows/rust.yml` runs.
 
-The suite is slower than its siblings and the reason is
-`../DIVERGENCE.md` 3: a repetition parses in quadratic time here, so the
-corpus and live suites, which parse real samples against real grammars,
-cost seconds rather than milliseconds. Do not "fix" that by shrinking a
-corpus case.
+The corpus and live suites parse real samples against real grammars on
+the unoptimised profile and cost seconds rather than milliseconds. Do not
+"fix" that by shrinking a corpus case.
 
 ## Untrusted input
 
@@ -220,6 +218,9 @@ well as past it. Two are load-bearing and both are written up in
   it, so `root ::= "x"{5000000}` aborts on an allocation. That one is
   `../DIVERGENCE.md` 6, and it is the shared compiler's to fix: a cap
   here would change which grammars this crate accepts;
-- input length is bounded by the quadratic parse, so the cases there
-  test to a four-figure sample and say why, rather than pretending a
-  five-figure one would return.
+- input length is not a boundary: a repetition parses in linear time
+  and at one rule depth, which `tests/perf_test.rs` holds over ten
+  thousand items in every shape GBNF writes, so the cases there run a
+  six-figure sample. (They were held to four figures while the shared
+  compiler spelled a repetition as a push chain: `../DIVERGENCE.md` 3,
+  closed by tabnas/bnf#80.)
