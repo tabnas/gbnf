@@ -7,14 +7,20 @@
 // busy box cannot make it flaky. There is deliberately NO absolute
 // wall-clock budget.
 //
-// The one absolute cost this crate has is recorded elsewhere, because it
-// is not this crate's: a repetition parses in time quadratic in the
-// input length here, which `DIVERGENCE.md` 3 measures against the other
-// two runtimes and `tests/divergence_test.rs` pins.
+// The last check is the fleet's rule on repetition, held here on a long
+// input in GBNF's own notation (`../../AGENTS.md`, "Repetition is
+// replacement, never a push chain"): the shared compiler emits every
+// `*`, `+` and `{m,}` as a same-depth replace loop, so ten thousand
+// items reach the rule depth one item does and cost linear time. Until
+// tabnas/bnf#80 the compiler spelled it as a push chain, and this port
+// parsed a repetition in time quadratic in the input length
+// (`DIVERGENCE.md` 3, closed).
 
 mod common;
 
-use std::time::Instant;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use tabnas::Tabnas;
 use tabnas_gbnf::{gbnf, parse_gbnf};
@@ -31,9 +37,7 @@ const PERF_GRAMMAR: &str = concat!(
 );
 
 /// Small on purpose. The parse has to stay the CHEAP half for the
-/// comparison below to be about compiling, and a repetition costs time
-/// quadratic in the input length here (`../DIVERGENCE.md` 3), so a long
-/// sample would drown the thing being measured.
+/// comparison below to be about compiling.
 const PERF_INPUT: &str = "[ab,-3]";
 
 /// How many repetitions each half of a comparison does. Small enough
@@ -154,6 +158,91 @@ fn a_decoder_failure_does_not_leak_into_the_next_parse() {
         assert!(
             parse_gbnf("root ::= \"ok\"").is_ok(),
             "the next parse inherited the last one's complaint"
+        );
+    }
+}
+
+/// The deepest rule a parse ran, read from the engine's rule events.
+fn deepest_rule(parser: &mut Tabnas, input: &str) -> usize {
+    let deepest = Arc::new(AtomicUsize::new(0));
+    let seen = deepest.clone();
+    parser.subscribe_rule_done(move |rule, _context, _done| {
+        seen.fetch_max(rule.d, Ordering::Relaxed);
+    });
+    assert!(parser.parse(input).is_ok(), "{input:.40?} parses");
+    deepest.load(Ordering::Relaxed)
+}
+
+/// The cost of one parse of `input`, as the fastest of five batches each
+/// run to at least 50 ms. Contention only ever slows a batch, so the
+/// fastest is the nearest to the real cost, and one slowed batch of the
+/// short input cannot shrink a ratio the way a single slowed round could.
+fn per_parse(parser: &Tabnas, input: &str) -> f64 {
+    let mut best = f64::INFINITY;
+    for _ in 0..5 {
+        let started = Instant::now();
+        let mut runs = 0u32;
+        loop {
+            assert!(parser.parse(input).is_ok());
+            runs += 1;
+            if started.elapsed() >= Duration::from_millis(50) {
+                break;
+            }
+        }
+        best = best.min(started.elapsed().as_secs_f64() / f64::from(runs));
+    }
+    best
+}
+
+/// Every repetition GBNF can write, over ten thousand items: the deepest
+/// rule is the deepest over the fewest items that run one full iteration
+/// of every loop in the grammar (`few`: a `+` and a `{2,}` reach their
+/// loop only past their first items), and four times the input costs
+/// about four times the work. Depth is judged first, because it needs no
+/// clock: a loop that still pushed per item would fail here however fast
+/// it ran. Time is a ratio within one run, never a budget.
+#[test]
+fn a_repetition_adds_no_rule_depth_and_parses_in_linear_time() {
+    // A grammar, what it repeats, the fewest items that run one full
+    // iteration of every loop in it, and the input for n items.
+    type Case = (&'static str, &'static str, usize, fn(usize) -> String);
+    let cases: [Case; 5] = [
+        ("root ::= [a-z]+", "a class", 2, |n| "a".repeat(n)),
+        ("root ::= item*\nitem ::= [a-z] \" \"", "a rule", 1, |n| {
+            "a ".repeat(n)
+        }),
+        (
+            "root ::= item ( \",\" item )*\nitem ::= [a-z]+",
+            "a group with a separator",
+            2,
+            |n| vec!["ab"; n].join(","),
+        ),
+        (
+            "root ::= row*\nrow ::= \"[\" cell* \"]\"\ncell ::= [a-z]",
+            "a repetition inside the item",
+            1,
+            |n| "[abc]".repeat(n),
+        ),
+        ("root ::= [a-z]{2,}", "an open count", 3, |n| "a".repeat(n)),
+    ];
+    for (grammar, what, few, make) in cases {
+        let mut probe = compile(grammar);
+        let one = deepest_rule(&mut probe, &make(few));
+        let many = deepest_rule(&mut probe, &make(10_000));
+        assert_eq!(
+            many, one,
+            "{what}: ten thousand items reach rule depth {many} where {few} reach \
+             {one}; the loop's iterations must add no depth"
+        );
+
+        let parser = compile(grammar);
+        let small = per_parse(&parser, &make(250));
+        let large = per_parse(&parser, &make(1_000));
+        let ratio = large / small;
+        assert!(
+            ratio < 8.0,
+            "{what}: four times the input cost {ratio:.1} times the work ({small:.5}s \
+             against {large:.5}s per parse); linear would be about four"
         );
     }
 }

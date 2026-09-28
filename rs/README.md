@@ -243,15 +243,14 @@ included. Where the two cannot agree, the input is in
 [`../DIVERGENCE.md`](../DIVERGENCE.md) with a measured table, and a test
 in `tests/divergence_test.rs` fails the day the entry stops being true.
 
-Three limits are worth knowing before feeding this untrusted input. A
+Two limits are worth knowing before feeding this untrusted input. A
 grammar nesting more than about 128 groups is refused by name rather
 than allowed to run the stack out, and so is one whose elements nest
 more than 130 deep, which a run of postfix operators reaches without
-nesting a single group. A repetition parses in time quadratic in the
-sample length. A repetition COUNT in the millions is not bounded here at
-all, and the memory the shared compiler then asks for ends the process.
-All three are written up in `../DIVERGENCE.md`, with what causes them
-and who owns the repair.
+nesting a single group. A repetition COUNT in the millions is not
+bounded here at all, and the memory the shared compiler then asks for
+ends the process. Both are written up in `../DIVERGENCE.md`, with what
+causes them and who owns the repair.
 
 ## License
 
