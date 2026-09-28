@@ -16,7 +16,9 @@
 
 mod common;
 
-use std::time::Instant;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use tabnas_gbnf::{gbnf_convert, parse_gbnf};
 
@@ -153,21 +155,15 @@ fn an_ascii_span_is_the_same_number_in_both_runtimes() {
 ///   assertion is deliberately the WRONG way round for a healthy port:
 ///   it passes while the divergence is open;
 /// - once `tabnas-bnf` emits the repetition as a replace loop, the
-///   divergence has closed, and the case asserts the closed side: four
-///   times the input costs about four times the work.
+///   divergence has closed, and the case asserts the closed side: the
+///   loop adds no rule depth, and four times the input costs about four
+///   times the work.
 ///
 /// The second arm exists so the fix in `tabnas-bnf` can be tested
 /// against this suite before it lands, since each repository tests the
 /// other at its default branch. Once `tabnas-bnf`'s main emits the loop,
 /// `DIVERGENCE.md` 3 and this case are deleted and the ceilings in
 /// `tests/untrusted_test.rs` are raised.
-///
-/// The two lengths are measured back to back and the ratio taken within
-/// the round, so a scheduler slice that lands on one measurement has
-/// landed on the other as well. Contention can only spoil a round, never
-/// flatter it, so the open side judges the BEST ratio of several rounds
-/// and the closed side the FASTEST: sixteen against four leaves a wide
-/// gap to put a threshold in either way.
 #[test]
 fn a_repetition_is_super_linear_until_the_compiler_emits_a_loop() {
     let grammar = "root ::= [a-z]+";
@@ -178,6 +174,20 @@ fn a_repetition_is_super_linear_until_the_compiler_emits_a_loop() {
             .chain(rule.close.iter().flatten())
             .any(|alt| alt.contains("r"))
     });
+    if emits_a_loop {
+        a_loop_adds_no_depth_and_runs_in_linear_time(grammar);
+    } else {
+        a_chain_runs_in_super_linear_time(grammar);
+    }
+}
+
+/// The open side. The two lengths are measured back to back and the
+/// ratio taken within the round, so a scheduler slice that lands on one
+/// measurement has landed on the other as well. The BEST ratio of several
+/// rounds is the one judged, because contention can only spoil a round,
+/// never flatter it beyond the noise the threshold already allows:
+/// sixteen against four leaves a wide gap to put a threshold in.
+fn a_chain_runs_in_super_linear_time(grammar: &str) {
     let parser = compile(grammar);
     let small_input = "a".repeat(250);
     let large_input = "a".repeat(1_000);
@@ -193,14 +203,12 @@ fn a_repetition_is_super_linear_until_the_compiler_emits_a_loop() {
     measure(&large_input);
 
     let mut best = 0.0f64;
-    let mut fastest = f64::INFINITY;
     let mut small = 0.0f64;
     let mut large = 0.0f64;
     for _ in 0..4 {
         let round_small = measure(&small_input);
         let round_large = measure(&large_input);
         let ratio = round_large / round_small;
-        fastest = fastest.min(ratio);
         if best < ratio {
             best = ratio;
             small = round_small;
@@ -208,23 +216,77 @@ fn a_repetition_is_super_linear_until_the_compiler_emits_a_loop() {
         }
     }
 
-    if emits_a_loop {
-        assert!(
-            fastest < 8.0,
-            "the shared compiler emits this repetition as a replace loop, yet four \
-             times the input cost at least {fastest:.1} times the work. Linear would \
-             be about four: the loop is not what makes it quadratic, so look in the \
-             engine."
-        );
-    } else {
-        assert!(
-            8.0 < best,
-            "four times the input cost {best:.1} times the work ({small:.4}s against \
-             {large:.4}s). Linear would be about four. If this is now linear, the \
-             repetition the shared compiler emits has been fixed: delete DIVERGENCE.md 3, \
-             raise the ceilings in tests/untrusted_test.rs, and delete this case."
-        );
+    assert!(
+        8.0 < best,
+        "four times the input cost {best:.1} times the work ({small:.4}s against \
+         {large:.4}s). Linear would be about four. If this is now linear, the \
+         repetition the shared compiler emits has been fixed: delete DIVERGENCE.md 3, \
+         raise the ceilings in tests/untrusted_test.rs, and delete this case."
+    );
+}
+
+/// The closed side, in the order that needs no clock first.
+///
+/// Depth: the fleet's rule is that a repetition's iterations add no rule
+/// depth, so the deepest rule over ten thousand items is the deepest
+/// over one. A loop that still pushed per item, or nested its value per
+/// item, would fail here however fast it ran.
+///
+/// Time: each length is timed as a batch of parses run to at least 50 ms,
+/// and each length keeps its fastest batch of five rounds. Contention
+/// only ever slows a batch, so a length's fastest batch is the nearest
+/// to its real cost, and one slowed batch of the short input cannot
+/// shrink the ratio the way a single slowed round could.
+fn a_loop_adds_no_depth_and_runs_in_linear_time(grammar: &str) {
+    let mut probe = compile(grammar);
+    let deepest = Arc::new(AtomicUsize::new(0));
+    let seen = deepest.clone();
+    probe.subscribe_rule_done(move |rule, _context, _done| {
+        seen.fetch_max(rule.d, Ordering::Relaxed);
+    });
+    let depth = |input: &str| {
+        deepest.store(0, Ordering::Relaxed);
+        assert!(probe.parse(input).is_ok());
+        deepest.load(Ordering::Relaxed)
+    };
+    let one = depth("a");
+    let many = depth(&"a".repeat(10_000));
+    assert_eq!(
+        many, one,
+        "the shared compiler emits this repetition as a replace loop, yet ten \
+         thousand items reach rule depth {many} where one item reaches {one}: the \
+         loop's iterations must add no depth"
+    );
+
+    let parser = compile(grammar);
+    let small_input = "a".repeat(250);
+    let large_input = "a".repeat(1_000);
+    let per_parse = |input: &str| {
+        let started = Instant::now();
+        let mut runs = 0u32;
+        loop {
+            assert!(parser.parse(input).is_ok());
+            runs += 1;
+            if started.elapsed() >= Duration::from_millis(50) {
+                break;
+            }
+        }
+        started.elapsed().as_secs_f64() / f64::from(runs)
+    };
+    let mut small = f64::INFINITY;
+    let mut large = f64::INFINITY;
+    for _ in 0..5 {
+        small = small.min(per_parse(&small_input));
+        large = large.min(per_parse(&large_input));
     }
+    let ratio = large / small;
+    assert!(
+        ratio < 8.0,
+        "the shared compiler emits this repetition as a replace loop, yet four \
+         times the input cost {ratio:.1} times the work ({small:.5}s against \
+         {large:.5}s per parse). Linear would be about four: the loop is not what \
+         makes it quadratic, so look in the engine."
+    );
 }
 
 // ---- 4. deep nesting is refused ----------------------------------------
