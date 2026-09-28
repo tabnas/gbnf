@@ -38,7 +38,7 @@ so a table that grows a row without growing a pin is visible:
 |---|---|
 | 1 | `an_unpaired_surrogate_escape_is_refused_by_name`, `a_surrogate_pair_is_the_character_it_names`, `a_surrogate_pair_inside_a_class_is_still_two_members`, and the `unrepresentable` arm of `rs/tests/oracle_test.rs` |
 | 2 | `a_span_after_an_astral_character_is_in_this_runtimes_units`, `an_ascii_span_is_the_same_number_in_both_runtimes`, and `the_column_the_engine_reports_counts_characters` in `rs/tests/oracle_test.rs` |
-| 3 | `a_repetition_still_parses_in_super_linear_time` |
+| 3 | `a_repetition_is_super_linear_until_the_compiler_emits_a_loop` |
 | 4 | `the_nesting_cap_falls_exactly_where_the_shared_compiler_does`, `nesting_far_past_the_cap_is_a_diagnostic`, `the_nesting_cap_falls_where_the_recorded_table_says` |
 | 5 | `an_engine_message_quotes_a_whole_astral_character` |
 | 6 | `an_oversized_repetition_count_saturates` |
@@ -168,6 +168,17 @@ is a hang by any other name. The untrusted-input suite states the ceiling it tes
 than pretending the ceiling is not there, and
 `rs/tests/divergence_test.rs` measures the ratio so that the day the
 emission is fixed, this entry fails and gets deleted.
+
+**Closing.** [tabnas/bnf#80](https://github.com/tabnas/bnf/pull/80)
+compiles every repetition to a same-depth replace loop, in all three
+runtimes. Built against it, this port is linear here: four times the
+input costs four times the work, where it cost sixteen. Each repository
+tests the other at its default branch, so the pin follows the compiler
+it is built against. It reads the emitted rules: while no alternate
+replaces, it asserts the quadratic side as above, and once the loop is
+emitted it asserts the linear side. When `tabnas-bnf`'s main emits the
+loop, delete this entry and its pin, and raise the ceilings in
+`rs/tests/untrusted_test.rs`.
 
 ## 4. Deep nesting is refused, where TypeScript compiles it
 

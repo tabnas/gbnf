@@ -145,21 +145,40 @@ fn an_ascii_span_is_the_same_number_in_both_runtimes() {
 /// cannot make it flaky.
 ///
 /// Four times the input costs about sixteen times the work here and
-/// about four times in TypeScript and Go. The assertion is deliberately
-/// the WRONG way round for a healthy port: it passes while the
-/// divergence is open and fails the day `tabnas-bnf` emits a repetition
-/// this engine runs in linear time, which is when `DIVERGENCE.md` 3 must
-/// be deleted.
+/// about four times in TypeScript and Go, while the shared compiler
+/// spells the repetition as a chain of pushes. The case follows the
+/// compiler it is built against, which it reads from the emitted rules:
+///
+/// - while no alternate replaces (`r`), the chain is what runs, and the
+///   assertion is deliberately the WRONG way round for a healthy port:
+///   it passes while the divergence is open;
+/// - once `tabnas-bnf` emits the repetition as a replace loop, the
+///   divergence has closed, and the case asserts the closed side: four
+///   times the input costs about four times the work.
+///
+/// The second arm exists so the fix in `tabnas-bnf` can be tested
+/// against this suite before it lands, since each repository tests the
+/// other at its default branch. Once `tabnas-bnf`'s main emits the loop,
+/// `DIVERGENCE.md` 3 and this case are deleted and the ceilings in
+/// `tests/untrusted_test.rs` are raised.
 ///
 /// The two lengths are measured back to back and the ratio taken within
 /// the round, so a scheduler slice that lands on one measurement has
-/// landed on the other as well. The BEST ratio of several rounds is the
-/// one judged, because contention can only spoil a round, never flatter
-/// it beyond the noise the threshold already allows: sixteen against
-/// four leaves a wide gap to put a threshold in.
+/// landed on the other as well. Contention can only spoil a round, never
+/// flatter it, so the open side judges the BEST ratio of several rounds
+/// and the closed side the FASTEST: sixteen against four leaves a wide
+/// gap to put a threshold in either way.
 #[test]
-fn a_repetition_still_parses_in_super_linear_time() {
-    let parser = compile("root ::= [a-z]+");
+fn a_repetition_is_super_linear_until_the_compiler_emits_a_loop() {
+    let grammar = "root ::= [a-z]+";
+    let spec = gbnf_convert(grammar, None).expect("the grammar compiles");
+    let emits_a_loop = spec.rule.values().flatten().any(|rule| {
+        rule.open
+            .iter()
+            .chain(rule.close.iter().flatten())
+            .any(|alt| alt.contains("r"))
+    });
+    let parser = compile(grammar);
     let small_input = "a".repeat(250);
     let large_input = "a".repeat(1_000);
     let measure = |input: &str| {
@@ -174,12 +193,14 @@ fn a_repetition_still_parses_in_super_linear_time() {
     measure(&large_input);
 
     let mut best = 0.0f64;
+    let mut fastest = f64::INFINITY;
     let mut small = 0.0f64;
     let mut large = 0.0f64;
     for _ in 0..4 {
         let round_small = measure(&small_input);
         let round_large = measure(&large_input);
         let ratio = round_large / round_small;
+        fastest = fastest.min(ratio);
         if best < ratio {
             best = ratio;
             small = round_small;
@@ -187,13 +208,23 @@ fn a_repetition_still_parses_in_super_linear_time() {
         }
     }
 
-    assert!(
-        8.0 < best,
-        "four times the input cost {best:.1} times the work ({small:.4}s against \
-         {large:.4}s). Linear would be about four. If this is now linear, the \
-         repetition the shared compiler emits has been fixed: delete DIVERGENCE.md 3, \
-         raise the ceilings in tests/untrusted_test.rs, and delete this case."
-    );
+    if emits_a_loop {
+        assert!(
+            fastest < 8.0,
+            "the shared compiler emits this repetition as a replace loop, yet four \
+             times the input cost at least {fastest:.1} times the work. Linear would \
+             be about four: the loop is not what makes it quadratic, so look in the \
+             engine."
+        );
+    } else {
+        assert!(
+            8.0 < best,
+            "four times the input cost {best:.1} times the work ({small:.4}s against \
+             {large:.4}s). Linear would be about four. If this is now linear, the \
+             repetition the shared compiler emits has been fixed: delete DIVERGENCE.md 3, \
+             raise the ceilings in tests/untrusted_test.rs, and delete this case."
+        );
+    }
 }
 
 // ---- 4. deep nesting is refused ----------------------------------------
