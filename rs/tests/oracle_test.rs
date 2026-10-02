@@ -458,6 +458,19 @@ fn every_source_emits_the_spec_the_typescript_emitted() {
     for entry in oracle() {
         let name = text_of(&entry, "name").expect("named");
         let src = text_of(&entry, "src").expect("sourced");
+        if let Some(expected) = entry.get("compileError") {
+            match gbnf_convert(&src, None) {
+                Ok(_) => wrong.push(format!(
+                    "{name}: compiled, but TypeScript refused: {expected}"
+                )),
+                Err(error) => {
+                    if let Some(complaint) = compare_error(&name, expected, &error) {
+                        wrong.push(complaint);
+                    }
+                }
+            }
+            continue;
+        }
         let Some(Json::Array(expected)) = entry.get("matchTokens") else {
             continue;
         };

@@ -136,7 +136,7 @@ impl GbnfError {
         match self {
             Self::Parse(_) => "GbnfParseError",
             Self::Compile(_) => "GbnfCompileError",
-            Self::Emit(_) => "BnfEmitError",
+            Self::Emit(_) => "EmitError",
             Self::Install(_) => "GbnfInstallError",
         }
     }

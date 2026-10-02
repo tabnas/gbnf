@@ -248,12 +248,13 @@ count a grammar can mean. Past `usize::MAX` each runtime saturates or
 reformats in its own way, and the TypeScript rendering is not even GBNF:
 `{1e+23}` does not reparse, because the notation's count is `[0-9]+`.
 
-Compilation no longer diverges. The shared compiler refuses numeric
-repetitions whose projected desugaring crosses 8192 work units, before
-allocating helpers, in TypeScript, Go, and Rust. For example,
-`root ::= "x"{5000000}` now returns a package-restamped diagnostic in
-all three instead of reaching a runtime-specific stack or allocation
-failure.
+The next shared-compiler release refuses numeric repetitions whose projected
+desugaring crosses 8192 work units before allocating helpers. The sibling
+checkout used by this repository's fleet tests already carries that boundary,
+but the published configuration still pins `@tabnas/bnf` and
+`github.com/tabnas/bnf/go` 0.1.22. Until those pins move to the safety release,
+a registry or `GOWORK=off` consumer can still spend unbounded compile time and
+memory on a hostile count such as `root ::= "x"{5000000}`.
 
 **Reason.** The remaining difference is the IR's numeric type: `usize`
 in this port, `int` in Go, and a double in the canonical TypeScript.
@@ -262,9 +263,11 @@ the same way.
 
 **Owner.** [`tabnas-bnf`](https://github.com/tabnas/bnf), because it
 declares the shared IR. Changing that type would be a cross-runtime IR
-contract change. The compiler-side safety boundary is already shared
-and is no longer a divergence.
+contract change. Its compiler-side safety boundary is implemented in all
+three runtimes and becomes this package's published boundary when the pinned
+dependency versions move to that release.
 
-**What it costs here.** Only parse/render fidelity for counts too large
-to describe a practical grammar. Compilation of hostile counts is
-bounded and returns a diagnostic.
+**What it costs here.** Parse/render fidelity differs for counts too large to
+describe a practical grammar. In a sibling checkout compilation is bounded
+and returns a diagnostic; the published-dependency configuration remains
+exposed until its pins move.
