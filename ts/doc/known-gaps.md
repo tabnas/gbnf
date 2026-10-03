@@ -226,7 +226,7 @@ Worth knowing if you are using `tn.parse()` as a validator.
 
 ---
 
-## 7. An unbounded repetition may not repeat a nullable item
+## 7. An unbounded repetition may not repeat an item that accepts empty input
 
 llama.cpp accepts chained postfix operators, including a grammar such as:
 
