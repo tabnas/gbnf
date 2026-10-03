@@ -15,6 +15,7 @@ mod common;
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
+use tabnas_bnf::MAX_REPEAT_EXPANSION;
 use tabnas_gbnf::{gbnf_convert, parse_gbnf, render_gbnf};
 
 use common::compile;
@@ -120,6 +121,35 @@ fn a_repetition_of_exactly_one_nests_nothing() {
     assert!(
         parse_gbnf(&src).is_ok(),
         "{{1}} wraps nothing and nests nothing"
+    );
+}
+
+#[test]
+fn numeric_repetition_expansion_is_bounded_before_allocation() {
+    assert_eq!(MAX_REPEAT_EXPANSION, 8192);
+
+    // A closed repetition costs one work unit for the repetition itself
+    // and one for each mandatory copy. The exact boundary still compiles.
+    let at_limit = format!("root ::= \"x\"{{{}}}", MAX_REPEAT_EXPANSION - 1);
+    gbnf_convert(&at_limit, None).expect("the expansion budget boundary must compile");
+
+    // One copy past it is refused by the shared compiler before helper
+    // allocation starts. Keep a generous wall bound for slow CI machines;
+    // the point is that this is independent of the hostile count.
+    let past_limit = format!("root ::= \"x\"{{{MAX_REPEAT_EXPANSION}}}");
+    let started = Instant::now();
+    let error =
+        gbnf_convert(&past_limit, None).expect_err("an expansion past the budget must be refused");
+    assert!(
+        error
+            .to_string()
+            .contains("repetition expansion limit of 8192"),
+        "{error}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "oversized repetition took {:?}",
+        started.elapsed()
     );
 }
 

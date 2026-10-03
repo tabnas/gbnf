@@ -248,13 +248,13 @@ count a grammar can mean. Past `usize::MAX` each runtime saturates or
 reformats in its own way, and the TypeScript rendering is not even GBNF:
 `{1e+23}` does not reparse, because the notation's count is `[0-9]+`.
 
-The next shared-compiler release refuses numeric repetitions whose projected
-desugaring crosses 8192 work units before allocating helpers. The sibling
-checkout used by this repository's fleet tests already carries that boundary,
-but the published configuration still pins `@tabnas/bnf` and
-`github.com/tabnas/bnf/go` 0.1.22. Until those pins move to the safety release,
-a registry or `GOWORK=off` consumer can still spend unbounded compile time and
-memory on a hostile count such as `root ::= "x"{5000000}`.
+The shared compiler now refuses numeric repetitions whose projected
+desugaring crosses 8192 work units before allocating helpers. Published
+consumers receive that boundary through `@tabnas/bnf` and
+`github.com/tabnas/bnf/go` 0.1.24. The Rust untrusted-input suite pins both the
+last accepted count and the first refused one; a hostile count such as
+`root ::= "x"{5000000}` therefore returns the limit diagnostic without
+allocating its helpers.
 
 **Reason.** The remaining difference is the IR's numeric type: `usize`
 in this port, `int` in Go, and a double in the canonical TypeScript.
