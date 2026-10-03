@@ -207,17 +207,17 @@ the unoptimised profile and cost seconds rather than milliseconds. Do not
 
 `../AGENTS.md` has the policy; this crate has the boundaries.
 `tests/untrusted_test.rs` states each one and pins it AT the limit as
-well as past it. Two are load-bearing and both are written up in
+well as past it. The runtime-specific boundaries are written up in
 `../DIVERGENCE.md`:
 
 - nesting is refused before it can overflow the stack, in BOTH the
   measures above, because a Rust stack that runs out aborts the process
   rather than unwinding, and `Value::to_json` and the default drop of a
   `Value` both recurse;
-- a repetition COUNT is not bounded here and the shared compiler unrolls
-  it, so `root ::= "x"{5000000}` aborts on an allocation. That one is
-  `../DIVERGENCE.md` 6, and it is the shared compiler's to fix: a cap
-  here would change which grammars this crate accepts;
+- repetition expansion is bounded by the shared compiler before
+  desugaring, so `root ::= "x"{5000000}` returns the same limit
+  diagnostic in every runtime rather than allocating. Count
+  representation past `usize::MAX` remains `../DIVERGENCE.md` 6;
 - input length is not a boundary: a repetition parses in linear time
   and at one rule depth, which `tests/perf_test.rs` holds over ten
   thousand items in every shape GBNF writes, so the cases there run a

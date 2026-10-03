@@ -662,14 +662,13 @@ an agent operating on either must treat every value as hostile text.
   (`gbnf-check`, `ts/src/cli.ts`'s other unported half).
 - **Rust-side limits.** Deep nesting is refused where TypeScript
   compiles it, in two measures (rule levels, and how deep the IR
-  nests), and a repetition COUNT in the millions ends the process on
-  an allocation where TypeScript raises a catchable error. Both are
-  measured against all three runtimes in
-  [`DIVERGENCE.md`](DIVERGENCE.md), which names the owner: the stack
-  caps are this repository's and stay, and the count is the shared
-  compiler's. (A repetition once parsed in quadratic time here, entry 3;
-  tabnas/bnf#80 closed it, and `rs/tests/perf_test.rs` holds the linear
-  side.)
+  nests). Counts past `usize::MAX` also saturate where TypeScript keeps
+  a double. Both differences are measured against all three runtimes in
+  [`DIVERGENCE.md`](DIVERGENCE.md). Compilation itself is now bounded
+  notation-neutrally by `tabnas-bnf`: oversized repetition expansions
+  return a diagnostic before allocation in every runtime. (A repetition
+  once parsed in quadratic time here, entry 3; tabnas/bnf#80 closed it,
+  and `rs/tests/perf_test.rs` holds the linear side.)
 
 **Go parse-level parity is done**, and is worth knowing about because
 it took two upstream changes, not one. Negotiated lexing landed in

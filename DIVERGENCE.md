@@ -248,34 +248,25 @@ count a grammar can mean. Past `usize::MAX` each runtime saturates or
 reformats in its own way, and the TypeScript rendering is not even GBNF:
 `{1e+23}` does not reparse, because the notation's count is `[0-9]+`.
 
-What compiling one costs. The shared compiler unrolls `{m}` into m
-copies, so the count is a work multiplier and a very short grammar can
-ask for a great deal:
+The shared compiler now refuses numeric repetitions whose projected
+desugaring crosses 8192 work units before allocating helpers. Published
+consumers receive that boundary through `@tabnas/bnf` and
+`github.com/tabnas/bnf/go` 0.1.24. The Rust untrusted-input suite pins both the
+last accepted count and the first refused one; a hostile count such as
+`root ::= "x"{5000000}` therefore returns the limit diagnostic without
+allocating its helpers.
 
-| input | TypeScript | Go | Rust |
-|---|---|---|---|
-| `root ::= "x"{100000}` | compiles, 141 ms | compiles, 65 ms | compiles, 476 ms |
-| `root ::= "x"{200000}` | `RangeError: Maximum call stack size exceeded` | compiles, 108 ms | compiles, 892 ms |
-| `root ::= "x"{1000000}` | the same `RangeError` | compiles, 699 ms | compiles, 4.4 s |
-| `root ::= "x"{5000000}` | the same `RangeError` | compiles, 2.7 s | `memory allocation of … failed`, and the process ABORTS |
+**Reason.** The remaining difference is the IR's numeric type: `usize`
+in this port, `int` in Go, and a double in the canonical TypeScript.
+The notation admits more digits than any of those types represent in
+the same way.
 
-**Reason.** Neither the count nor the unrolling is this front-end's. The
-IR field is `usize` in `tabnas-bnf` and a double in the canonical, and
-the desugaring that turns a count into that many helper rules is the
-shared compiler's in every runtime. TypeScript meets its own recursion
-limit first and raises a catchable error; this port has no limit to meet
-and asks the allocator instead, which aborts rather than returning.
+**Owner.** [`tabnas-bnf`](https://github.com/tabnas/bnf), because it
+declares the shared IR. Changing that type would be a cross-runtime IR
+contract change. Its compiler-side safety boundary is implemented in all
+three runtimes, and this package pins the published 0.1.24 release that carries
+it.
 
-**Owner.** [`tabnas-bnf`](https://github.com/tabnas/bnf), in both
-halves: the IR's numeric type, and a bound on what a repetition count
-may unroll to. This repository cannot fix either without changing which
-grammars it accepts relative to the canonical, which is the one thing a
-front-end must not do on its own (`AGENTS.md`, "Authority and alignment
-rules", rule 2). A cap here would have to sit between the 100000 that
-TypeScript compiles and the 5000000 that aborts, and where in that range
-is the shared compiler's decision to make, not this crate's.
-
-**What it costs here.** `gbnf-check` on a grammar whose repetition count
-is six figures is slow, and on one in the millions the process dies
-without a diagnostic. A grammar file is untrusted input, so that is
-worth knowing before pointing the command at one.
+**What it costs here.** Parse/render fidelity differs for counts too large to
+describe a practical grammar. Compilation is bounded and returns a diagnostic
+in sibling checkouts and through the published 0.1.24 dependencies.
