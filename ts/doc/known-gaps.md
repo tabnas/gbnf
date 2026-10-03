@@ -226,7 +226,33 @@ Worth knowing if you are using `tn.parse()` as a validator.
 
 ---
 
-## 7. Smaller divergences
+## 7. An unbounded repetition may not repeat an item that accepts empty input
+
+llama.cpp accepts chained postfix operators, including a grammar such as:
+
+```gbnf
+root ::= "a"? *
+```
+
+The inner `?` may succeed without consuming a character, and the outer `*`
+may therefore start another iteration at the same input position forever.
+The shared `@tabnas/bnf` compiler refuses that grammar by name. The same
+restriction applies when nullability is hidden behind a group or a rule
+reference, and to every unbounded `*`, `+`, or `{m,}` repetition.
+
+This front-end still accepts chained postfix syntax when every unbounded
+iteration must consume input. For example, `"a"* ?` is finite at parse time:
+the outer operator is optional, while the inner star's item is the consuming
+literal.
+
+**Status:** deliberate safety boundary. llama.cpp can represent the grammar,
+but a deterministic parser must not execute a loop that can complete an
+iteration without advancing. The check is owned by `@tabnas/bnf`, shared by
+all BNF-family front-ends, and recorded in the cross-runtime oracle.
+
+---
+
+## 8. Smaller divergences
 
 - **Duplicate rules: last wins.** GBNF has no ABNF-style `=/`, and
   llama.cpp keeps rules in a map, so a second `name ::= …` replaces the
