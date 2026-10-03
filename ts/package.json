@@ -50,12 +50,12 @@
     ".": "./dist/gbnf.js"
   },
   "peerDependencies": {
-    "@tabnas/bnf": ">=0.1.22",
-    "@tabnas/parser": ">=0.12.7"
+    "@tabnas/bnf": ">=0.1.24",
+    "@tabnas/parser": ">=0.12.8"
   },
   "devDependencies": {
-    "@tabnas/abnf": "^0.4.15",
-    "@tabnas/bnf": "^0.1.22",
+    "@tabnas/abnf": "^0.4.16",
+    "@tabnas/bnf": "^0.1.24",
     "@tabnas/debug": "*",
     "@tabnas/parser": "*",
     "@tabnas/railroad": "*",
