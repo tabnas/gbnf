@@ -264,10 +264,9 @@ the same way.
 **Owner.** [`tabnas-bnf`](https://github.com/tabnas/bnf), because it
 declares the shared IR. Changing that type would be a cross-runtime IR
 contract change. Its compiler-side safety boundary is implemented in all
-three runtimes and becomes this package's published boundary when the pinned
-dependency versions move to that release.
+three runtimes, and this package pins the published 0.1.24 release that carries
+it.
 
 **What it costs here.** Parse/render fidelity differs for counts too large to
-describe a practical grammar. In a sibling checkout compilation is bounded
-and returns a diagnostic; the published-dependency configuration remains
-exposed until its pins move.
+describe a practical grammar. Compilation is bounded and returns a diagnostic
+in sibling checkouts and through the published 0.1.24 dependencies.
