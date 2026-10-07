@@ -31,17 +31,21 @@ tracks it. The Go port in [`../go`](../go) reads the same notation.
 
 ## Install
 
-The engine and the shared compiler are unpublished, so both are PATH
-dependencies on sibling checkouts. Clone
-[`tabnas/parser`](https://github.com/tabnas/parser) and
-[`tabnas/bnf`](https://github.com/tabnas/bnf) next to this repository,
-then:
+The examples on this page name the engine as well as this crate, and both
+are on crates.io. The engine's package is `tabnas-parser`, whose library is
+named `tabnas` in code:
 
-```toml
-[dependencies]
-tabnas = { package = "tabnas-parser", path = "../parser/rs" }
-tabnas-gbnf = { path = "../gbnf/rs" }
+```bash
+cargo add tabnas-gbnf tabnas-parser
 ```
+
+In this repository, `Cargo.toml` takes the engine and the shared compiler
+by path from sibling checkouts of
+[`tabnas/parser`](https://github.com/tabnas/parser) and
+[`tabnas/bnf`](https://github.com/tabnas/bnf) instead, and the tests take
+`tabnas-abnf` the same way. The release workflow swaps those paths for
+crates.io versions, and drops the test-only one, when it publishes this
+crate.
 
 ## Compile a grammar and check a string
 

@@ -297,7 +297,7 @@ a close-state alt land in the rule's close-token array.
 
 ## Authority and alignment rules
 
-1. **`ts/` is canonical.** The Go port follows it.
+1. **`ts/` is canonical.** The Go and Rust ports follow it.
 2. **`@tabnas/bnf` is not this repo's to change.** If a limitation is in
    the shared compiler's emission (as the overlapping-terminal gaps in
    §2 of known-gaps were), record it there and fix it upstream — do not
@@ -315,7 +315,7 @@ a close-state alt land in the rule's close-token array.
 From `ts/`:
 
 ```bash
-npm install    # resolves the file: siblings (@tabnas/bnf, parser, debug, railroad)
+npm install    # installs @tabnas/abnf, bnf, debug, parser and railroad from the registry
 npm run build  # tsc --build src
 npm test       # node --enable-source-maps --test test/**/*.test.js
 ```
@@ -430,12 +430,16 @@ The steps, in order:
    suite then passes against unreleased code while appearing to verify the
    published one. Reinstalling is the part that matters.
 
-   One thing a clean install does **not** isolate:
-   `ts/test/doc-examples.test.*` resolves `@tabnas/*` by filesystem path
-   (`const TABNAS = path.join(REPO, '..')`), not through `node_modules`. If
-   unbuilt sibling checkouts sit beside this repo, those blocks fail with
-   `MODULE_NOT_FOUND` no matter what you installed — build the siblings, or
-   verify somewhere they are absent.
+   A clean install covers the doc examples too.
+   `ts/test/doc-examples.test.*` resolves a doc example's `require` through
+   `node_modules` first; only a `@tabnas/*` package that is not installed
+   falls back to the sibling checkout `../<x>/ts`
+   (`const TABNAS = path.join(REPO, '..')`), and `@tabnas/gbnf` itself to
+   this repository's `ts/`. The tested blocks require only `@tabnas/gbnf`,
+   `@tabnas/abnf` and `@tabnas/parser`, which `ts/package.json` declares,
+   so they run against the registry copies, unless admin's
+   `scripts/link.sh` has linked a sibling over one, in which case that
+   sibling has to be built.
 
    `npm test` already compiles here: `ts/package.json` sets `pretest` to
    `npm run build`, which npm runs automatically. No separate build step is
@@ -449,13 +453,17 @@ The steps, in order:
    ```bash
    (
      cd go
-     go mod edit -json | grep -q '"Replace": null' || { echo 'go.mod has a replace'; exit 1; }
+     go mod edit -json | jq -e '.Replace == null' >/dev/null || { echo 'go.mod has a replace'; exit 1; }
      GOWORK=off go test -count=1 ./...
    )
    ```
 
    `-count=1` because shared fixtures live outside the Go module, so a
-   changed corpus does not invalidate the test cache.
+   changed corpus does not invalidate the test cache. The check asks `jq`,
+   not `grep`: current Go leaves the `Replace` key out when there is no
+   replace, where older Go printed `"Replace": null`, and `jq` reads a
+   missing key as null, so the check passes on a clean `go.mod` and fails
+   on a replace either way.
 4. **Merge the bump through a reviewed PR.** That is the house convention —
    `CONTRIBUTING.md` squash-merges PRs and takes the title as the commit
    message — and what `release.yml`'s own header describes. A direct push to
@@ -611,7 +619,7 @@ They stay in the Makefile because removing them is a separate change.
 ## Error codes
 
 This package declares **no** error codes: there is no `error`/`hint`
-catalogue in either runtime, and no fixture pins an `ERROR:<code>` row —
+catalogue in any runtime, and no fixture pins an `ERROR:<code>` row —
 there is no `test/spec` directory; the shared data under `test/` is the
 two committed corpora. Diagnostics are `GbnfParseError` /
 `GbnfCompileError` / `GbnfRenderError` exceptions with prose messages.

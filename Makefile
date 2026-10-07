@@ -6,8 +6,9 @@
 # Go releases are `go/v*` tags served by the module proxy (see
 # .github/workflows), so publish-go stays an echo.
 #
-# Local build/test resolve the unpublished @tabnas siblings via the
-# repo-set node_modules symlinks (admin/scripts/link.sh).
+# TypeScript and Go build against the published @tabnas siblings (npm, the
+# Go proxy); admin/scripts/link.sh can point them at local checkouts instead
+# (node_modules symlinks + a go.work one level up).
 
 .PHONY: all build test clean build-ts build-go build-rs \
         test-ts test-go test-rs clean-ts clean-go clean-rs version-rs \
@@ -53,8 +54,9 @@ publish-go:
 #
 # The engine and the shared compiler are PATH dependencies on sibling
 # checkouts (tabnas/parser and tabnas/bnf), and tabnas/abnf is a
-# dev-dependency; none is published, so clone all three beside this
-# repository first. `ci/rust/run.sh` is the full gate.
+# dev-dependency. All three are on crates.io, but rs/Cargo.toml takes them
+# by path, so clone all three beside this repository first.
+# `ci/rust/run.sh` is the full gate.
 build-rs:
 	cd rs && cargo build --all-targets
 
