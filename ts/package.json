@@ -56,8 +56,8 @@
     "@tabnas/parser": ">=0.12.11"
   },
   "devDependencies": {
-    "@tabnas/abnf": "^0.4.16",
-    "@tabnas/bnf": "^0.1.24",
+    "@tabnas/abnf": "^0.4.20",
+    "@tabnas/bnf": "^0.1.28",
     "@tabnas/debug": "*",
     "@tabnas/parser": "*",
     "@tabnas/railroad": "*",
