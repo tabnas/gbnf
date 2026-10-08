@@ -2,9 +2,9 @@
 
 The `.gbnf` files here are llama.cpp's own grammars, copied verbatim from
 [`ggml-org/llama.cpp`](https://github.com/ggml-org/llama.cpp/tree/master/grammars)
-at commit `81bc6b83f827df746eb129235488d325c49cae52` (release b11200, fetched
-2026-09-26; all eight files verified byte-identical to the earlier fetch
-at `030ebb558a5820b444a8f836ed5cdd46c9b4bd7a`).
+at commit `ff30363a0e3e2630828309ef5a37da5d1d40396c` (release b11497, fetched
+2026-10-08; all eight files verified byte-identical to the b11200 fetch
+at `81bc6b83f827df746eb129235488d325c49cae52`).
 They are the reference for what real GBNF looks like, so they are
 tracked as-is: no reformatting, no trimming, no "fixing" a grammar that
 this compiler finds hard.
