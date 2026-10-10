@@ -82,6 +82,8 @@ token allocation, first-set analysis, `$stepN` chain emission.
 both directions (`parseGbnf` / `renderGbnf`) — and the lexer settings
 the emitted spec carries, because scannerlessness is a property of the
 notation rather than of the IR.
+The translation parts (see "Translation") carry the notation one arrow
+further, from the compiled spec back to GBNF text.
 
 **Repetition is replacement, never a push chain.** The arrow above also
 decides who owns a loop. When a tabnas alternate hands control to another rule, it either
@@ -164,6 +166,10 @@ or narrows an accepted language defeats the purpose stated there.
 | [`ts/test/render.test.js`](ts/test/render.test.js) | The renderer — parse→render→parse fixed point over BOTH corpora, the refused constructs, the case-insensitive expansion, the ABNF bridge end to end. |
 | [`ts/test/doc-examples.test.js`](ts/test/doc-examples.test.js) | Runs every ` ```js ` fence in the repo's markdown that carries a `// =>` assertion. |
 | [`ts/test/version.test.js`](ts/test/version.test.js) | The exported `VERSION` against `ts/package.json`. |
+| [`ts/test/translate.test.js`](ts/test/translate.test.js) | The translation parts: the embedded copies are the files, the manifest's `translate` object, and the grammar spec a host reads. |
+| [`ts/test/translate-render.test.js`](ts/test/translate-render.test.js) | The render run through the `alchemy` command `TABNAS_ALCHEMY` names, skipped without it: compiled specs written back, and changed ones refused. |
+| [`alchemy/render.alc`](alchemy/render.alc) | The render: a grammar spec written back as GBNF (entry `gbnf-render`). See "Translation". |
+| [`ts/embed-translate.js`](ts/embed-translate.js) | Copies `tabnas.plugin.json` and the render into `ts/src/translate.ts`, `go/translate/` and `rs/translate/`, all three GENERATED; `npm run embed` runs it, and so does the build. |
 | [`test/corpus/`](test/corpus/) | llama.cpp's own `grammars/*.gbnf`, verbatim and **committed**. See the README there for provenance. |
 | [`test/live/`](test/live/) | Schema-generated GBNF, extracted verbatim from llama.cpp's converter tests. See the README there. |
 | [`ts/doc/`](ts/doc/) | 4-quadrant Diátaxis docs plus [`known-gaps.md`](ts/doc/known-gaps.md). |
@@ -236,6 +242,124 @@ with unexpected-character errors far from the cause.
 that silently ignores the option; do not weaken the probe. The full
 mechanism is
 [`ts/doc/concepts.md` §"Negotiated lexing"](ts/doc/concepts.md#negotiated-lexing).
+
+## Translation
+
+A host that translates between formats (aless, `alchemy translate`, the
+design in tabnas/transduce `docs/translation.md`) reads this format's
+parts from the `translate` object of
+[`tabnas.plugin.json`](tabnas.plugin.json): a GBNF document is read as a
+tree and written from one (`reads`, `writes`), an object (`root`), of the
+schema `grammar-spec` (`schema`), which ABNF and EBNF share, since the
+three compile through the one compiler, so a host can translate a grammar
+from one notation to another. There is no embed, so the target is
+schema-only: a host composes into the render only from a source of the
+same schema, or from a program that builds a grammar spec, and refuses
+any other source before reading it.
+
+There is no `lift` either. A lift is an alchemy program a composition runs
+over a source's events; reading a GBNF document means compiling it, which
+is the host's registry concern, as aless and alchemy-cli wire each
+format's reader. The tree a host reads is the pure-data GrammarSpec of
+`compileSpec(gbnfConvert(src, { builtins: true }), { recognition: false,
+strict: true })`, `compileSpec` being `@tabnas/bnf`'s (`compile_spec`
+over `gbnf_convert` with `builtins` on in Rust; `bnf.ToJsonic` over
+`bnf.ToPureSpec` over `Gbnf` with `Builtins` on in Go), parsed as JSON:
+the compiled rules with their tree builders as `$`-builtins, the options
+(GBNF's exact lexing among them), and `meta.provenance`, which names the
+rule each synthesized rule came from.
+A spec without it is read by the names the compiler gives the rules it
+makes (`_gen<n>_<kind>...`, the start wrapper, and the `$alt<i>`,
+`$step<j>`, `$fact<k>` and probe parts it splits off a rule), a helper
+only where it also has the shape its kind has; any other rule, such as
+one the author named `_general`, is the author's.
+The TypeScript and Rust compilers
+write that text byte for byte alike, its keys in the order the compiler
+emits them, which is the grammar's rule order and its tokens' order, and
+the render reads both. Go's serializer writes the same spec with its keys
+in name order and the match tokens' order in a `tokenOrder` list, so a
+spec a Go host serializes has lost the rule order, which ranks the tokens
+(the order the lexer tries two tokens a place expects); the render
+refuses such a spec when its `tokenOrder` holds two tokens or more,
+rather than write rules whose tokens rank otherwise.
+
+[`alchemy/render.alc`](alchemy/render.alc) is the render, an
+[alchemy](https://github.com/tabnas/alchemy) library whose entry point
+`gbnf-render` writes a grammar spec as one GBNF document. Its contract is
+the round trip: the text compiles back to the spec it was written from.
+`renderGbnf` (`render_gbnf` in Rust) writes GBNF from the IR a document
+parses to; the render writes it from the spec the IR compiles to, and
+spells every terminal, group and repetition as `renderGbnf` does, so the
+two can be compared. The spec is a compiled grammar, not the grammar's
+text, so the render reads the compiler's shapes back into the notation,
+exactly as ABNF's and EBNF's renders do (the reading is the same
+library, under each notation's prefix): helpers written where they are
+referenced as the construct they compile, sequences read from their
+`$step` chains and dispatchers from their `$alt` rules, factored tails
+expanded, substituted leading references written back where the
+alternatives they became still stand together, and the alternatives the
+compiler reordered put back in the order its helpers' numbers record. The
+file's header comment says how each shape is read. GBNF's start rule is
+`root`: a spec whose start rule has another name is written with
+`root ::= <start>` first, as `renderGbnf` writes it.
+
+The manifest's `loss` list says, a sentence each, what a written grammar
+does not keep, and what the render refuses with
+TARGET_VALUE_UNREPRESENTABLE: an action (a value annotation's builders, a
+user action, the probe dispatcher of an optional prefix), a condition or
+a counter other than a repetition's, an error generator or an alternate
+modifier (`e`, `h`), a function reference where a rule or a count is due,
+a set of tokens at one place, a removal, a clear or the form that edits a
+rule already installed (`{alts, inject}`), a token no GBNF terminal
+matches (the engine's own `TX`, `NR`, `ST` and `VL`, a class whose flags
+change what it matches, a pattern that is neither one class nor an
+escaped literal), a token set whose tokens are not the class its name
+gives, a rule with no alternate to open with, a sequence's step with more
+alternates than a step, a rule the compiler lifted to a token whose name
+another rule holds,
+a start that is not the start wrapper every grammar text compiles
+to, a name GBNF cannot spell, and Go's `tokenOrder`. The
+tree builders every compiled grammar carries, and its marks, are not
+written, as the plan's declared subset says (an action or a mark is not
+written): the compiler makes them again from the rules, and a loss
+sentence says so.
+
+Measured with the `alchemy` command (alchemy-cli) over every grammar the
+repository holds: the 8 of `test/corpus/`, the 77 of `test/live/` and the
+222 sources of `rs/tests/oracle/gbnf-oracle.json`, 219 distinct. 186
+compile (the oracle holds the other 33 because the front end refuses
+them), and 181 come back as the same spec, byte for byte. Three come
+back as another spec, each a rule whose alternatives the compiler
+reordered with no helper's number to restore their order (the third
+loss sentence): `json.gbnf`, `json_arr.gbnf` and the live case "min +
+max items with min + max values across zero". Two are refused, each
+naming its cause: `chess.gbnf`, whose optional prefix the compiler
+dispatches with a probe, and `root ::= "a"{0,0}`, a repetition of no
+copies whose item the spec does not keep.
+
+Of the 184 texts written, 160 are `renderGbnf`'s text exactly (and so
+`render_gbnf`'s, which `rs/tests/oracle_test.rs` holds to it). The other
+24 differ where the spec does not keep what the IR does: 9 by
+alternatives written in the order the compiler reordered them to, 1 by
+an empty alternative written first, 8 by rules the compiler made tokens
+of (`null ::= "null"`) written after the others, and 4 by a leading
+reference written back to another rule that begins with the same
+alternatives, or left substituted. The last 2 are a lone surrogate in a
+class (`[\uD800]`), which `renderGbnf` writes as U+FFFD and the render
+writes as the `\uD800` escape, which reads back.
+
+`npm run embed` in `ts/` (the build runs it) copies the manifest and the
+render into every runtime: `ts/src/translate.ts`, `go/translate/` and
+`rs/translate/`, served as `translate()` in TypeScript, `Translate()` in
+Go and `translate()`, `manifest_text()` and `render_text()` in Rust. The
+translation tests (`ts/test/translate.test.js`, `go/translate_test.go`,
+`rs/tests/translate_test.rs`) hold the copies to the files and the tree to
+what the compiler writes, so change the files at the root and run the
+embed. Running the render needs alchemy, which this repository does not
+depend on: `ts/test/translate-render.test.js` runs it through the
+`alchemy` command `TABNAS_ALCHEMY` names, over specs the compiler writes
+and specs changed to hold what the render must refuse, and skips without
+it; the round trip over the corpora is the hosts'.
 
 ## Design notes for the meta-grammar
 
