@@ -292,3 +292,23 @@ test('the render refuses a lifted rule whose name another rule holds', { skip },
 test('the render keeps alternatives that are alike', { skip }, () => {
   writes('root ::= "a" | "a"\n', 'root ::= "a" | "a"\n')
 })
+
+// A spec without `meta.provenance` is read by the names the compiler gives
+// its helpers, `_gen<n>_<kind>`, each with the shape the compiler gives
+// its kind: a rule the author named `_general`, or named as a helper and
+// shaped otherwise, is the author's.
+test('the render reads the compiler\'s helpers by name and shape where the spec names no provenance', { skip }, () => {
+  const noProvenance = (spec) => {
+    delete spec.meta
+    return spec
+  }
+  for (const src of [
+    'root ::= ("a" | "b") w "c"? w "d"* w "e"+ w "f"{2,3} w\nw ::= [a-z]\n',
+    'root ::= word _general\n_general ::= "x" | "y"\nword ::= [a-z]+\n',
+    'root ::= _general word\n_general ::= "x" | "y"\nword ::= [a-z]+\n',
+    'root ::= word _gen9_opt_x\n_gen9_opt_x ::= "x" "y"\nword ::= [a-z]+\n',
+    'root ::= word _gen9_plus_x\n_gen9_plus_x ::= "x" "y"\nword ::= [a-z]+\n',
+  ]) {
+    writes(src, src, noProvenance)
+  }
+})
