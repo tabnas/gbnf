@@ -24,9 +24,10 @@
     "directory": "ts"
   },
   "scripts": {
-    "build": "tsc --build src",
+    "build": "node embed-translate.js && tsc --build src",
     "build-demo": "esbuild doc/demo-entry.js --bundle --format=iife --minify --outfile=../docs/gbnf-demo.js",
     "clean": "rm -rf node_modules dist dist-test yarn.lock package-lock.json",
+    "embed": "node embed-translate.js",
     "repo-publish": "npm run clean && npm i && npm run repo-publish-quick",
     "repo-publish-quick": "npm run build && npm run test && npm run repo-tag",
     "repo-stage": "npm run clean && npm i && npm run repo-stage-quick",
