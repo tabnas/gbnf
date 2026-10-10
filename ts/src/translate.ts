@@ -61,7 +61,7 @@ const TRANSLATION: TranslationParts = Object.freeze({
       "An empty alternative is written as nothing between its bars; in a rule whose alternatives the compiler emits as its open alternates, where it puts the empty one last wherever it stood, it is written first, as llama.cpp's grammars write it.",
       "A spec compiled from another notation compiles back under GBNF's own settings: the group tag on every alternate and GBNF's exact lexing are GBNF's, a case-insensitive literal (ABNF's default) is written as the two-case classes and strings that match exactly what it matches, an RFC 5234 core rule is written as a rule of its own, and an empty literal, which GBNF reads as nothing, as an empty string.",
       "The tree builders every compiled grammar carries (@node$, @capture$, @bubble$ and @fold$, with their k settings) and its marks are not written, since the compiler makes them again from the rules: a spec whose builders or marks are others compiles back with the compiler's own, and recognises what it recognised.",
-      "A spec the render cannot write as GBNF is refused with TARGET_VALUE_UNREPRESENTABLE, naming what it met: an action (a value annotation's builders, a user action, the probe dispatcher of an optional prefix), a condition or a counter other than a repetition's, an error generator or an alternate modifier, a function reference where a rule or a count is due, a set of tokens at one place, a removal, a clear or the form that edits a rule already installed, a token no GBNF terminal matches (the engine's own TX, NR, ST and VL, a class whose flags change what it matches (no u on a class that is negated, reaches past U+FFFF or holds every code point, or u on one that holds a surrogate), a pattern that is neither one class nor an escaped literal, a case-insensitive literal holding a character past ASCII that may have cases: one of the Basic Multilingual Plane, or of a script past it that has them), a token set whose tokens are not the class its name gives, a rule with no alternate to open with, a sequence's step with more alternates than a step, a rule the compiler lifted to a token whose name another rule holds, a rule name GBNF cannot spell, the empty name among them, a repetition bounded past what the compiler numbers, a repetition of no copies, whose item the spec does not keep, or a spec that gives its match tokens' order as a list of its own (Go's tokenOrder), whose rules' order, which ranks the tokens, is lost."
+      "A spec the render cannot write as GBNF is refused with TARGET_VALUE_UNREPRESENTABLE, naming what it met: an action (a value annotation's builders, a user action, the probe dispatcher of an optional prefix), a condition or a counter other than a repetition's, an error generator or an alternate modifier, a function reference where a rule or a count is due, a set of tokens at one place, a removal, a clear or the form that edits a rule already installed, a token no GBNF terminal matches (the engine's own TX, NR, ST and VL, a class whose flags change what it matches (no u on a class that is negated, reaches past U+FFFF or holds every code point, or u on one that holds a surrogate), a pattern that is neither one class nor an escaped literal, a case-insensitive literal holding a character past ASCII that may have cases: one of the Basic Multilingual Plane, or of a script past it that has them), a token set whose tokens are not the class its name gives, a rule with no alternate to open with, a sequence's step with more alternates than a step, a rule the compiler lifted to a token whose name another rule holds, a start that is not the start wrapper every grammar text compiles to (one open alternate that matches nothing and pushes a rule, closed by the end of the source alone), a rule name GBNF cannot spell, the empty name among them, a repetition bounded past what the compiler numbers, a repetition of no copies, whose item the spec does not keep, or a spec that gives its match tokens' order as a list of its own (Go's tokenOrder), whose rules' order, which ranks the tokens, is lost."
     ]
   }
 }
@@ -149,6 +149,11 @@ const TRANSLATION: TranslationParts = Object.freeze({
 ; the tokens (the order the lexer tries two tokens a place expects), is
 ; lost. The tree builders and the marks are not written: the compiler
 ; makes them again from the rules.
+; A spec whose start is not the start wrapper every grammar text
+; compiles to (one open alternate that matches nothing and pushes a
+; rule, closed by the end of the source alone) is refused as well: its
+; text would compile back inside such a wrapper, whose close lets the
+; end of the source come after what the lexer skips.
 ;
 ; A spec compiled from another notation is written as far as GBNF can say
 ; it: a case-insensitive literal (ABNF's default) as the sequence of
@@ -482,7 +487,7 @@ def gbnf-el-name [el]
 
 ; The start wrapper the compiler adds, which \`options.rule.start\` names:
 ; one open alternate that consumes nothing and pushes the grammar's start
-; rule, and nothing but the end of the source to close it.
+; rule, and the end of the source, and nothing else, to close it.
 def gbnf-wrapper [r]
   let [o (gbnf-open r)]
     match (count o)
@@ -490,8 +495,29 @@ def gbnf-wrapper [r]
         let [a (gbnf-at o 0)]
           match (match (gbnf-some (gbnf-s a)) (case true false) (case false (gbnf-full (gbnf-p a))))
             case false false
-            case true (gbnf-none (filter (fn [c] (gbnf-not (gbnf-same (string-join " " (gbnf-s c)) "#ZZ"))) (gbnf-close r)))
+            case true
+              let [c (gbnf-close r)]
+                match (count c)
+                  case 0 false
+                  case _ (gbnf-none (filter (fn [x] (gbnf-not (gbnf-wrapper-end x))) c))
       case _ false
+
+; A close alternate that matches the end of the source and goes nowhere.
+def gbnf-wrapper-end [alt]
+  match (gbnf-same (string-join " " (gbnf-s alt)) "#ZZ")
+    case false false
+    case true (gbnf-empty (gbnf-target alt))
+
+; Every grammar text compiles to a start wrapper around its start rule,
+; and the wrapper's close lets the end of the source come after what the
+; lexer skips (\`ab \` where the grammar is \`ab\`). So the rule
+; \`options.rule.start\` names must be that wrapper: a spec that starts at
+; another rule, or at a wrapper without its close, would come back
+; accepting what it refuses.
+def gbnf-check-start [cx]
+  match (gbnf-wrapper (gbnf-rule cx (get :start cx)))
+    case true true
+    case false (gbnf-fail (string-join "" ["the start rule " (get :start cx) " is not the start wrapper every grammar text compiles to (one open alternate that matches nothing and pushes a rule, closed by the end of the source alone)"]))
 
 ; ---- what the spec may hold
 
@@ -651,8 +677,9 @@ def gbnf-check [spec cx]
     case true (gbnf-fail "it clears the grammar it is installed on, which is not written")
     case _
       let [order (gbnf-check-order spec)]
-        let [rules (count (map (fn [name] (gbnf-check-rule cx name)) (keys (get :rules cx))))]
-          gbnf-check-sets cx (gbnf-used cx)
+        let [start (gbnf-check-start cx)]
+          let [rules (count (map (fn [name] (gbnf-check-rule cx name)) (keys (get :rules cx))))]
+            gbnf-check-sets cx (gbnf-used cx)
 
 ; ---- tokens
 
