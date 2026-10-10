@@ -307,7 +307,14 @@ a set of tokens at one place, a removal, a clear or the form that edits a
 rule already installed (`{alts, inject}`), a token no GBNF terminal
 matches (the engine's own `TX`, `NR`, `ST` and `VL`, a class whose flags
 change what it matches, a pattern that is neither one class nor an
-escaped literal), a name GBNF cannot spell, and Go's `tokenOrder`.
+escaped literal), a token set whose tokens are not the class its name
+gives, a rule with no alternate to open with, a sequence's step with more
+alternates than a step, a rule the compiler lifted to a token whose name
+another rule holds, a name GBNF cannot spell, and Go's `tokenOrder`. The
+tree builders every compiled grammar carries, and its marks, are not
+written, as the plan's declared subset says (an action or a mark is not
+written): the compiler makes them again from the rules, and a loss
+sentence says so.
 
 Measured with the `alchemy` command (alchemy-cli) over every grammar the
 repository holds: the 8 of `test/corpus/`, the 77 of `test/live/` and the
