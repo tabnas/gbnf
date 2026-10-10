@@ -46,6 +46,7 @@
   "files": [
     "dist",
     "src",
+    "embed-translate.js",
     "README.md",
     "LICENSE"
   ],
