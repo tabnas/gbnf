@@ -225,7 +225,7 @@ setting `CaseSensitive` alone IS dropping the flag, which is how the Go
 port accepted `B` for `"b"` until tabnas/alchemy-cli#22 found it.
 `TestALiteralIsCaseSensitive` in `go/gbnf_test.go` asserts it on the IR,
 the emitted spec and a parse, and `go/oracle_test.go` holds every
-literal of the corpus to TypeScript's.
+fixed token of the corpus to TypeScript's, by name and text.
 
 **2. GBNF is scannerless; the engine is not.** The engine ships
 `tokenSet.IGNORE = ['#SP','#LN','#CM']` and a full set of JSON-shaped
@@ -506,9 +506,12 @@ What "correct" means here, in order of authority:
    identically in both directions, and `corpusExpectedFailures` in
    `go/gbnf_test.go` is empty and stays empty. `go/oracle_test.go`
    holds the spec Go emits for each of the oracle's 222 sources to what
-   TypeScript emitted (the same refusals, rules, `lex.empty` and match
-   tokens, each by the characters it matches); how the two specs are
-   still spelled differently is DIVERGENCE.md 7.
+   TypeScript emitted: the same refusals, match tokens (each by the
+   characters it matches), fixed tokens, token sets, options and
+   provenance, and every rule's definition in full, the last four as
+   digests `rs/tests/oracle/gen-oracle.js` records. How the two specs
+   are still spelled differently is DIVERGENCE.md 7, and the test sets
+   aside exactly its rows, each by its own normalisation.
 3. **The version constants agree** — `VERSION` in `ts/src/gbnf.ts` MUST
    equal `ts/package.json` `"version"`; `ts/test/version.test.js` and
    `go/version_test.go` fail the build on drift.

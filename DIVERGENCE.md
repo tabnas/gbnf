@@ -15,11 +15,12 @@ held to the TypeScript front-end's own output over a 222 source corpus
 grammars and all seventy-seven schema-generated ones) by
 [`rs/tests/oracle_test.rs`](rs/tests/oracle_test.rs), source spans,
 rendered text, emitted match tokens and rule names included, and
-[`go/oracle_test.go`](go/oracle_test.go) holds the Go port's emitted
-spec to the same oracle, as far as what it accepts: the same refusals,
-rules, `lex.empty` and match tokens, each token by the characters it
-matches. What is below is what those comparisons had to set aside, and
-why.
+[`go/oracle_test.go`](go/oracle_test.go) holds the spec the Go port
+emits to the same oracle, part by part: the same refusals, and for every
+source both compile the same match tokens, fixed tokens, token sets,
+options and provenance, and every rule's definition in full, apart from
+what entry 7's rows set aside, each by its own normalisation. What is
+below is what those comparisons had to set aside, and why.
 
 ## Where the divergences are pinned
 
@@ -47,7 +48,7 @@ so a table that grows a row without growing a pin is visible:
 | 4 | `the_nesting_cap_falls_exactly_where_the_shared_compiler_does`, `nesting_far_past_the_cap_is_a_diagnostic`, `the_nesting_cap_falls_where_the_recorded_table_says` |
 | 5 | `an_engine_message_quotes_a_whole_astral_character` |
 | 6 | `an_oversized_repetition_count_saturates` |
-| 7 | `TestDivergenceTheMatchTokensOrderIsAListOfItsOwn`, `TestDivergenceAClassIsNamedForItsRE2Spelling`, `TestDivergenceEveryClassIsEager`, `TestDivergenceAClassLosesItsUFlag` and `TestDivergenceALoopsExitGuardsAreInNameOrder` in `go/divergence_test.go`, one per row, and `TestOracleAgreesWithTypeScript` in `go/oracle_test.go` for what the spec accepts |
+| 7 | `TestDivergenceTheMatchTokensOrderIsAListOfItsOwn`, `TestDivergenceAClassIsNamedForItsRE2Spelling`, `TestDivergenceEveryClassIsEager`, `TestDivergenceAClassLosesItsUFlag` and `TestDivergenceALoopsExitGuardsAreInNameOrder` in `go/divergence_test.go`, one per row, and `TestOracleAgreesWithTypeScript` in `go/oracle_test.go`, which compares the rest of the spec with each row set aside by its own normalisation |
 
 Each pin was bite-checked: the expectation was altered and the case
 watched go red. A row whose expectation is the same as the canonical's
@@ -306,10 +307,10 @@ oracle.
 | row | what | TypeScript | Go | sources |
 |---|---|---|---|---|
 | 1 | key order | the compiler's: the grammar's rules, then its tokens | every key in name order, the match tokens' order in `options.match.tokenOrder` | all 186; the 112 with a class carry `tokenOrder` |
-| 2 | a class token's name | `#RX___U0061__U007A`, for `[\u0061-\u007a]`; the compiler's partition atoms spelled in capitals (`\u007A`) | `#RX___X_61___X_7A`, for RE2's `[\x{61}-\x{7a}]`, the pattern written back as `[\u0061-\u007a]`; the atoms in small letters | the 112 with a class; 33 with atoms |
+| 2 | a class token's name, and a token set's, which is its class's | `#RX___U0061__U007A`, for `[\u0061-\u007a]`; the compiler's partition atoms spelled in capitals (`\u007A`) | `#RX___X_61___X_7A`, for RE2's `[\x{61}-\x{7a}]`, the pattern written back as `[\u0061-\u007a]`; the atoms in small letters | the 112 with a class; the 59 with partition atoms and their token sets, in 33 of them an atom whose hex digits differ in case |
 | 3 | `eager$` on a class | only where `markClassesEager` proves dropping the token-column gate safe (`@~/`), cleared otherwise (`@/`) | every class, as the shared compiler flags them | 81 |
 | 4 | a class's `u` flag | `u` on a negated class, one past U+FFFF and `[\s\S]` | no flag but `i` is written, and a code point past U+FFFF is written `\u1f600`, which JavaScript reads as `\u1f60` then `0` | 7 negated classes; 36 with a range past U+FFFF |
-| 5 | a loop's exit guards | in the order the compiler meets their tokens | in name order: the same alternates, each ending the loop on the token it looks ahead at | 41 |
+| 5 | a run of adjacent alternates alike in everything but the token they name, one per token of a FIRST or FOLLOW set: a dispatch, a loop's exits, a probe's scan | in the order the compiler meets the tokens | in name order: the same alternates | 43; 1,430 rules |
 
 **Reason.** Rows 1, 2, 4 and 5 are the shared compiler's Go serializer
 and emitter, which this port hands its IR to. Go's RE2 has no `\u`
@@ -317,7 +318,10 @@ escape, so a class is compiled as `\x{…}`, and the token is named for
 that text before the serializer translates the pattern back
 (`goHexToJsUnicode`); `bnf`'s `go/doc/differences.md` records the
 spelling, and its port was verified "with token names normalised across
-the two runtimes' regex spellings". Go's regexps carry no flags but
+the two runtimes' regex spellings". Go reads every FIRST and FOLLOW set in
+name order (`sortedKeys`), where TypeScript's Sets keep the order the
+compiler adds to them, so each run of per-token alternates comes out
+sorted (row 5). Go's regexps carry no flags but
 `(?i)`, so `jsRegexFlags` writes no `u`, and `goHexToJsUnicode` pads a
 code point to four digits without bracing a longer one; `ts/doc/known-gaps.md`
 section 5 records the other direction, a TypeScript class's `u` that Go's RE2
@@ -329,9 +333,10 @@ every class keeps the flag. AGENTS.md's "Not implemented yet" says so.
 
 **What it costs.** In a Go engine nothing in rows 1, 2, 4 and 5 changes
 which strings parse: the corpus grades identically in both runtimes, in
-both directions (`go/gbnf_test.go`), and the oracle test holds the
-accepted parts. Row 3 does lex differently where TypeScript keeps the
-gate, and a mis-cut can only make a parse fail, never succeed (AGENTS.md,
+both directions (`go/gbnf_test.go`), and `go/oracle_test.go` holds
+every other part of the spec to TypeScript's. Row 3 does lex differently
+where TypeScript keeps the gate, and a mis-cut can only make a parse
+fail, never succeed (AGENTS.md,
 "`eagerClasses` is conditional"). A spec a Go host serializes is another
 matter for a JavaScript engine or a render that reads it: row 4 hands
 one a class that matches other characters, and the translation renders

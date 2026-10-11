@@ -34,6 +34,8 @@ The Rust oracle, `rs/tests/oracle/gbnf-oracle.json`, records the text
 of every corpus grammar and live-case grammar verbatim, so a refresh
 regenerates it: build `ts/`, then run
 [`gen-oracle.js`](../rs/tests/oracle/gen-oracle.js) as its header says.
+The Go oracle test reads the same file: each compiled source's `pure`
+field, the digests of TypeScript's pure-data spec, comes from it too.
 
 If the grammar set or the live case count changed, the census moves
 too. The suites of every runtime pin it: the grammar names and samples
