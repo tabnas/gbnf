@@ -218,7 +218,14 @@ case-insensitive by default; this is the opposite. The IR carries
 `fixed.token` (an exact byte match) rather than an `i`-flagged regex.
 Drop the flag and the grammar still compiles, still parses its own
 examples, and quietly accepts `TRUE` for `"true"`. Asserted twice in
-`ts/test/gbnf.test.js` — on the IR and through a parse.
+`ts/test/gbnf.test.js` — on the IR and through a parse. The Go IR spells
+the flag as two fields, `CaseSensitive` and `HasCaseSens`, and the
+shared compiler reads the first only where the second says it was set:
+setting `CaseSensitive` alone IS dropping the flag, which is how the Go
+port accepted `B` for `"b"` until tabnas/alchemy-cli#22 found it.
+`TestALiteralIsCaseSensitive` in `go/gbnf_test.go` asserts it on the IR,
+the emitted spec and a parse, and `go/oracle_test.go` holds every
+fixed token of the corpus to TypeScript's, by name and text.
 
 **2. GBNF is scannerless; the engine is not.** The engine ships
 `tokenSet.IGNORE = ['#SP','#LN','#CM']` and a full set of JSON-shaped
@@ -497,7 +504,14 @@ What "correct" means here, in order of authority:
    [`ts/doc/known-gaps.md`](ts/doc/known-gaps.md), don't delete the case.
 2. **Go agrees with TypeScript.** All eight corpus grammars grade
    identically in both directions, and `corpusExpectedFailures` in
-   `go/gbnf_test.go` is empty and stays empty.
+   `go/gbnf_test.go` is empty and stays empty. `go/oracle_test.go`
+   holds the spec Go emits for each of the oracle's 222 sources to what
+   TypeScript emitted: the same refusals, match tokens (each by the
+   characters it matches), fixed tokens, token sets, options and
+   provenance, and every rule's definition in full, the last four as
+   digests `rs/tests/oracle/gen-oracle.js` records. How the two specs
+   are still spelled differently is DIVERGENCE.md 7, and the test sets
+   aside exactly its rows, each by its own normalisation.
 3. **The version constants agree** — `VERSION` in `ts/src/gbnf.ts` MUST
    equal `ts/package.json` `"version"`; `ts/test/version.test.js` and
    `go/version_test.go` fail the build on drift.
@@ -781,11 +795,15 @@ an agent operating on either must treat every value as hostile text.
 
 ## Not implemented yet
 
-- **`markClassesEager` has no Go port.** The front-end's one local
-  mitigation — dropping the rule-directed gate when a grammar's classes
-  are provably unambiguous — is missing in `go/`. Smaller than it
-  sounds, and inert where it does not apply: the whole corpus grades
-  in both directions without it. The Rust port HAS it, and
+- **`markClassesEager` has no Go port, nor does `clearClassesEager`.**
+  The shared compiler flags every class matcher `eager$`, and the
+  TypeScript front-end keeps the flag only where a grammar's classes are
+  provably unambiguous, clearing it everywhere else. The Go front-end
+  does neither, so every class it emits drops the rule-directed gate,
+  where TypeScript keeps it in 81 of the 186 grammars the corpus and the
+  oracle compile (DIVERGENCE.md 7, row 3). A mis-cut can only make a
+  parse fail, and the whole corpus grades in both directions as it is.
+  The Rust port HAS both, and
   `rs/tests/oracle_test.rs` compares the eager flags it sets against
   the TypeScript ones for every source it carries.
 - **The Go renderer.** `renderGbnf` (IR → GBNF text) has no Go
