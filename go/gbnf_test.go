@@ -40,8 +40,47 @@ func TestParsesRuleIntoProduction(t *testing.T) {
 	}
 	// GBNF's default is the OPPOSITE of RFC 5234's. Losing the flag would
 	// silently accept "TRUE" for "true".
-	if !el.CaseSensitive {
-		t.Error("GBNF literals must be case-sensitive")
+	if !el.CaseSensitive || !el.HasCaseSens {
+		t.Error("GBNF literals must be case-sensitive, and say so explicitly")
+	}
+}
+
+// `root ::= "b"` is case-sensitive in the IR, in the spec it compiles to
+// and in what that spec accepts, as it is in TypeScript and Rust. The Go
+// IR spells TypeScript's optional `caseSensitive` as two fields, and the
+// shared compiler reads CaseSensitive only where HasCaseSens says it was
+// set: this port set CaseSensitive alone, so every literal holding a letter
+// compiled as RFC 5234's case-insensitive default, the match token
+// `@~/^b/i`, and accepted "B" (alchemy-cli registers it as
+// readerDefects["gbnf"]). TestOracleAgreesWithTypeScript holds every
+// literal of the corpus to the same.
+func TestALiteralIsCaseSensitive(t *testing.T) {
+	const src = `root ::= "b"`
+	el := mustParse(t, src).Productions[0].Alts[0][0]
+	if el.Kind != bnf.KindTerm || !el.CaseSensitive || !el.HasCaseSens {
+		t.Errorf("the literal must be case-sensitive, set explicitly: %+v", el)
+	}
+	spec, err := Gbnf(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lit := spec.Options.Fixed.Token["#B"]; lit == nil || *lit != "b" {
+		t.Errorf("the literal must be the fixed token #B, an exact match of \"b\": %v",
+			spec.Options.Fixed.Token)
+	}
+	if spec.Options.Match != nil && len(spec.Options.Match.Token) != 0 {
+		t.Errorf("the literal must not be a case-folding match token: %v",
+			spec.Options.Match.Token)
+	}
+	tn := tabnas.Make()
+	if _, err := Install(tn, src, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tn.Parse("b"); err != nil {
+		t.Errorf("\"b\" is in the language, and was refused: %v", err)
+	}
+	if _, err := tn.Parse("B"); err == nil {
+		t.Error("\"B\" is not in the language, and was accepted")
 	}
 }
 

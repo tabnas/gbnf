@@ -595,10 +595,16 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 				// RFC 5234's default. The flag is what makes the emitter
 				// lower this to a plain fixed token instead of a
 				// case-folding regex, so dropping it would silently accept
-				// "TRUE" for "true".
+				// "TRUE" for "true". The Go IR spells TypeScript's optional
+				// `caseSensitive` as two fields, and the shared compiler
+				// reads the value only where HasCaseSens says it was set
+				// (bnf's isEffectivelyCaseSensitive): CaseSensitive alone
+				// is read as unset, and a literal holding a letter as
+				// RFC 5234's case-insensitive default.
 				if lit != "" {
 					r.Node = &bnf.Element{
-						Kind: bnf.KindTerm, Literal: lit, CaseSensitive: true,
+						Kind: bnf.KindTerm, Literal: lit,
+						CaseSensitive: true, HasCaseSens: true,
 						Sp: spanOf(r.O[0]),
 					}
 				}

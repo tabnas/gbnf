@@ -14,8 +14,12 @@ held to the TypeScript front-end's own output over a 222 source corpus
 (every construct the notation has, every refusal, all eight llama.cpp
 grammars and all seventy-seven schema-generated ones) by
 [`rs/tests/oracle_test.rs`](rs/tests/oracle_test.rs), source spans,
-rendered text, emitted match tokens and rule names included. What is
-below is what that comparison had to set aside, and why.
+rendered text, emitted match tokens and rule names included, and
+[`go/oracle_test.go`](go/oracle_test.go) holds the Go port's emitted
+spec to the same oracle, as far as what it accepts: the same refusals,
+rules, `lex.empty` and match tokens, each token by the characters it
+matches. What is below is what those comparisons had to set aside, and
+why.
 
 ## Where the divergences are pinned
 
@@ -25,7 +29,9 @@ carry a `rust` column (`AGENTS.md`, "Error codes"). The shared data
 under `test/` is the two committed corpora, which are graded directly.
 
 So each entry below is pinned by a named Rust test in
-[`rs/tests/divergence_test.rs`](rs/tests/divergence_test.rs), asserted
+[`rs/tests/divergence_test.rs`](rs/tests/divergence_test.rs), or, for
+an entry about the Go port, a named Go test in
+[`go/divergence_test.go`](go/divergence_test.go), asserted
 in BOTH directions where a runtime boundary allows it: the behaviour
 recorded here, and the behaviour that would mean the entry has closed,
 so a port that starts agreeing fails as loudly as one that starts
@@ -41,6 +47,7 @@ so a table that grows a row without growing a pin is visible:
 | 4 | `the_nesting_cap_falls_exactly_where_the_shared_compiler_does`, `nesting_far_past_the_cap_is_a_diagnostic`, `the_nesting_cap_falls_where_the_recorded_table_says` |
 | 5 | `an_engine_message_quotes_a_whole_astral_character` |
 | 6 | `an_oversized_repetition_count_saturates` |
+| 7 | `TestDivergenceTheMatchTokensOrderIsAListOfItsOwn`, `TestDivergenceAClassIsNamedForItsRE2Spelling`, `TestDivergenceEveryClassIsEager`, `TestDivergenceAClassLosesItsUFlag` and `TestDivergenceALoopsExitGuardsAreInNameOrder` in `go/divergence_test.go`, one per row, and `TestOracleAgreesWithTypeScript` in `go/oracle_test.go` for what the spec accepts |
 
 Each pin was bite-checked: the expectation was altered and the case
 watched go red. A row whose expectation is the same as the canonical's
@@ -271,3 +278,68 @@ it: 0.1.24 or later.
 describe a practical grammar. Compilation is bounded and returns a diagnostic
 in sibling checkouts and through the published dependencies, bnf 0.1.24 or
 later.
+
+## 7. The Go port's spec is spelled otherwise
+
+What the Go port emits for a source, against what the canonical
+TypeScript emits, MEASURED on 2026-10-11 over the 219 distinct sources
+of `test/corpus/`, `test/live/` and the oracle's hand-written cases.
+Each spec is taken as a host reads it: TypeScript's
+`compileSpec(gbnfConvert(src, { builtins: true }), { recognition: false,
+strict: true })`, and Go's `bnf.ToJsonic(bnf.ToPureSpec(spec), true, 2)`
+over `Gbnf(src, &ConvertOptions{Builtins: true})`. Both refuse the same
+33 sources. Of the 186 both compile, none is the same byte for byte; 91
+are the same once the first two rows below are set aside; and the other
+95 differ in the rows after them, or in entry 1. bnf/go v0.1.28, which
+`go/go.mod` requires, and v0.1.29 give the same 219 answers.
+
+Until this port's IR carried `HasCaseSens` (tabnas/alchemy-cli#22,
+registered there as `readerDefects["gbnf"]`), 102 of the 186 also
+compiled a literal holding a letter as a case-folding match token
+(`root ::= "b"` as `@~/^b/i`), and accepted `B` where TypeScript and Rust
+refuse it. The Go IR spells TypeScript's optional `caseSensitive` as two
+fields, and the shared compiler reads `CaseSensitive` only where
+`HasCaseSens` says it was set; the conversion set the first alone. That
+is closed, and pinned by `TestALiteralIsCaseSensitive` as well as the
+oracle.
+
+| row | what | TypeScript | Go | sources |
+|---|---|---|---|---|
+| 1 | key order | the compiler's: the grammar's rules, then its tokens | every key in name order, the match tokens' order in `options.match.tokenOrder` | all 186; the 112 with a class carry `tokenOrder` |
+| 2 | a class token's name | `#RX___U0061__U007A`, for `[\u0061-\u007a]`; the compiler's partition atoms spelled in capitals (`\u007A`) | `#RX___X_61___X_7A`, for RE2's `[\x{61}-\x{7a}]`, the pattern written back as `[\u0061-\u007a]`; the atoms in small letters | the 112 with a class; 33 with atoms |
+| 3 | `eager$` on a class | only where `markClassesEager` proves dropping the token-column gate safe (`@~/`), cleared otherwise (`@/`) | every class, as the shared compiler flags them | 81 |
+| 4 | a class's `u` flag | `u` on a negated class, one past U+FFFF and `[\s\S]` | no flag but `i` is written, and a code point past U+FFFF is written `\u1f600`, which JavaScript reads as `\u1f60` then `0` | 7 negated classes; 36 with a range past U+FFFF |
+| 5 | a loop's exit guards | in the order the compiler meets their tokens | in name order: the same alternates, each ending the loop on the token it looks ahead at | 41 |
+
+**Reason.** Rows 1, 2, 4 and 5 are the shared compiler's Go serializer
+and emitter, which this port hands its IR to. Go's RE2 has no `\u`
+escape, so a class is compiled as `\x{…}`, and the token is named for
+that text before the serializer translates the pattern back
+(`goHexToJsUnicode`); `bnf`'s `go/doc/differences.md` records the
+spelling, and its port was verified "with token names normalised across
+the two runtimes' regex spellings". Go's regexps carry no flags but
+`(?i)`, so `jsRegexFlags` writes no `u`, and `goHexToJsUnicode` pads a
+code point to four digits without bracing a longer one; `ts/doc/known-gaps.md`
+section 5 records the other direction, a TypeScript class's `u` that Go's RE2
+cannot load. Row 3 is this
+repository's: TypeScript's front-end clears the compiler's `eager$` from
+every class unless both of `markClassesEager`'s conditions hold
+(`clearClassesEager`), and the Go front-end ports neither function, so
+every class keeps the flag. AGENTS.md's "Not implemented yet" says so.
+
+**What it costs.** In a Go engine nothing in rows 1, 2, 4 and 5 changes
+which strings parse: the corpus grades identically in both runtimes, in
+both directions (`go/gbnf_test.go`), and the oracle test holds the
+accepted parts. Row 3 does lex differently where TypeScript keeps the
+gate, and a mis-cut can only make a parse fail, never succeed (AGENTS.md,
+"`eagerClasses` is conditional"). A spec a Go host serializes is another
+matter for a JavaScript engine or a render that reads it: row 4 hands
+one a class that matches other characters, and the translation renders
+already refuse a class whose flags change what it matches, and Go's
+`tokenOrder`.
+
+**Owner.** Rows 1, 2, 4 and 5:
+[`tabnas-bnf`](https://github.com/tabnas/bnf)'s Go serializer and
+emitter. Row 4 is the one worth repairing first, since it is the only
+one that changes what a serialized spec matches. Row 3: this repository,
+by porting `markClassesEager` and `clearClassesEager` to `go/`.
