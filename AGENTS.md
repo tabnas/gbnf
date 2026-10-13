@@ -183,7 +183,7 @@ or narrows an accepted language defeats the purpose stated there.
 
 **Every grammar in llama.cpp's `grammars/` directory compiles.** Eight
 files, copied verbatim at commit
-`ff30363a0e3e2630828309ef5a37da5d1d40396c` (release b11497), tracked in
+`296538adea19ff397100bf8e7d71f302d2d2bb35` (release b11589), tracked in
 [`test/corpus/`](test/corpus/) and graded by
 [`ts/test/corpus.test.js`](ts/test/corpus.test.js).
 

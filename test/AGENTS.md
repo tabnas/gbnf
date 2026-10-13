@@ -2,8 +2,8 @@
 
 `corpus/*.gbnf` holds llama.cpp's own grammars, copied verbatim from
 [`ggml-org/llama.cpp`](https://github.com/ggml-org/llama.cpp/tree/master/grammars)
-at commit `ff30363a0e3e2630828309ef5a37da5d1d40396c` (release b11497,
-fetched 2026-10-08). They are the reference for what real GBNF looks like.
+at commit `296538adea19ff397100bf8e7d71f302d2d2bb35` (release b11589,
+fetched 2026-10-13). They are the reference for what real GBNF looks like.
 
 Unlike the generated corpora in some sibling repos, these files are
 **committed**. There is no fetch script and no `pretest` hook: the whole
