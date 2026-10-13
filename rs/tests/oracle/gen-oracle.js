@@ -296,8 +296,12 @@ for (const { name, src } of sources) {
 // records, the same on both sides, so a digest differs only where the
 // specs differ in a way no row excuses:
 //
-//   - key order, row 1: object keys are written sorted, and
-//     `options.match.tokenOrder` is left out;
+//   - key order: object keys are written sorted, and
+//     `options.match.tokenOrder` is left out, since the Go side reads the
+//     spec back into maps, which keep no order; go/oracle_test.go holds
+//     the order the rules and the match tokens are written in to
+//     `ruleNames` and `matchTokens` apart from the digests (DIVERGENCE.md
+//     7's row 1 excused it until tabnas-bnf 0.1.30);
 //   - class token names, row 2: wherever a rule names a token set, the set
 //     is written as its members, sorted, and the sets as a sorted list of
 //     those; the Go side first gives each class token the name of the

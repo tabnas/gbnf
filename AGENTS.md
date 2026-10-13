@@ -283,12 +283,14 @@ one the author named `_general`, is the author's.
 The TypeScript and Rust compilers
 write that text byte for byte alike, its keys in the order the compiler
 emits them, which is the grammar's rule order and its tokens' order, and
-the render reads both. Go's serializer writes the same spec with its keys
-in name order and the match tokens' order in a `tokenOrder` list, so a
-spec a Go host serializes has lost the rule order, which ranks the tokens
-(the order the lexer tries two tokens a place expects); the render
-refuses such a spec when its `tokenOrder` holds two tokens or more,
-rather than write rules whose tokens rank otherwise.
+the render reads both. Go's serializer writes its keys in the same order
+from tabnas-bnf 0.1.30 (DIVERGENCE.md 7 records what it still spells
+otherwise). Before that it wrote them in name order, with the match
+tokens' order in a `tokenOrder` list, so a spec an older Go host
+serialized has lost the rule order, which ranks the tokens (the order the
+lexer tries two tokens a place expects); the render refuses such a spec
+when its `tokenOrder` holds two tokens or more, rather than write rules
+whose tokens rank otherwise.
 
 [`alchemy/render.alc`](alchemy/render.alc) is the render, an
 [alchemy](https://github.com/tabnas/alchemy) library whose entry point
@@ -325,7 +327,8 @@ gives, a rule with no alternate to open with, a sequence's step with more
 alternates than a step, a rule the compiler lifted to a token whose name
 another rule holds,
 a start that is not the start wrapper every grammar text compiles
-to, a name GBNF cannot spell, and Go's `tokenOrder`. The
+to, a name GBNF cannot spell, and the `tokenOrder` Go's serializer wrote
+before tabnas-bnf 0.1.30. The
 tree builders every compiled grammar carries, and its marks, are not
 written, as the plan's declared subset says (an action or a mark is not
 written): the compiler makes them again from the rules, and a loss
