@@ -348,3 +348,16 @@ already refuse a class whose flags change what it matches, and Go's
 emitter. Row 4 is the one worth repairing first, since it is the only
 one that changes what a serialized spec matches. Row 3: this repository,
 by porting `markClassesEager` and `clearClassesEager` to `go/`.
+
+**Closing, rows 1 and 4.**
+[tabnas/bnf#114](https://github.com/tabnas/bnf/pull/114) writes a Go spec
+in the order TypeScript writes it, with no `tokenOrder`, and its matchers
+as TypeScript writes them, the `u` flag and braced code points included.
+Each repository tests the other at its default branch, so the pins of
+rows 1 and 4 follow the compiler they are built against
+(`writesTypeScriptsSpelling` in `go/divergence_test.go`): while the
+serializer writes `tokenOrder` they assert this port's spelling, as the
+table gives it, and once it writes none they assert TypeScript's, the
+match tokens in the order the compiler allocated them and each class with
+its `u`. When `go/go.mod` takes the bnf release that carries #114, delete
+rows 1 and 4 and their pins.
