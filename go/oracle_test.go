@@ -30,16 +30,19 @@
 //   - entry 1: the four sources whose TypeScript answer holds a lone
 //     surrogate, which JSON cannot carry, and `root ::= "\uD83D\uDE00"`,
 //     whose fixed token is held to the two U+FFFD the entry records;
-//   - entry 7, row 1: key order, which the canonical text sorts, and
-//     tokenOrder, which is held to TypeScript's match token order;
-//   - row 2: a class token's name, compared by the characters it matches,
-//     and a token set's, compared by its members;
+//   - entry 7, row 2: a class token's name, compared by the characters it
+//     matches, and a token set's, compared by its members; and the case
+//     of the hex digits in a pattern's code point escapes;
 //   - row 3: the eager flag, held to what the row records, that this port
 //     flags every class eager;
-//   - row 4: the u flag, and the text the serializer writes for a
-//     pattern, since the pattern this port compiles is what is compared;
 //   - row 5: the order within a run of adjacent alternates alike in
 //     everything but the token they name, which is compared as a set.
+//
+// The canonical text is read back into maps, so it sorts keys; the order
+// the rules and the match tokens are written in, and each match token's
+// pattern and flags as written, are compared apart from it
+// (writtenDifferences). Rows 1 and 4, which set those aside, closed with
+// tabnas-bnf 0.1.30.
 //
 // A row that closes takes its exemption with it: change the comparison
 // here, and the canonical text in gen-oracle.js with it.
@@ -196,10 +199,11 @@ func oracleDifferences(e oracleEntry) []string {
 
 // classTokenNames maps each match token of the spec to the TypeScript
 // token that matches the same characters, and lists what is not as
-// TypeScript has it. A token's name is the dialect's (row 2) and its u
-// flag TypeScript's alone (row 4); whether it folds case is compared, and
-// so is the order the lexer tries the tokens in, which this port writes as
-// tokenOrder (row 1). Every match token here is eager (row 3).
+// TypeScript has it. A token's name is the dialect's (row 2); whether it
+// folds case is compared, and so is the order the lexer tries the tokens
+// in. Every match token here is eager (row 3). How each is written, its
+// pattern, its flags and its place among the others, writtenDifferences
+// compares.
 func classTokenNames(spec *tabnas.GrammarSpec, want []oracleToken) (map[string]string, []string) {
 	var out []string
 	byKey := map[string]oracleToken{}
@@ -273,18 +277,21 @@ func pureDifferences(e oracleEntry) []string {
 	if err != nil {
 		return append(out, fmt.Sprintf("this port writes no pure-data spec for it: %v", err))
 	}
-	decoder := json.NewDecoder(strings.NewReader(bnf.ToJsonic(pure, true, 0)))
+	text := bnf.ToJsonic(pure, true, 0)
+	decoder := json.NewDecoder(strings.NewReader(text))
 	decoder.UseNumber()
 	var tree map[string]any
 	if err := decoder.Decode(&tree); err != nil {
 		return append(out, fmt.Sprintf("the pure-data spec this port writes is not JSON: %v", err))
 	}
-	parts, err := purePartsOf(tree, func(name string) string {
+	renamed := func(name string) string {
 		if renamed, ok := rename[name]; ok {
 			return renamed
 		}
 		return name
-	})
+	}
+	out = append(out, writtenDifferences(text, tree, e, renamed)...)
+	parts, err := purePartsOf(tree, renamed)
 	if err != nil {
 		return append(out, err.Error())
 	}
@@ -332,15 +339,149 @@ func pureDifferences(e oracleEntry) []string {
 	return out
 }
 
+// writtenDifferences compares what the canonical text below cannot see,
+// since it is read back into maps: how the spec is written. The rules and
+// the match tokens are written in the order the compiler made them, which
+// ranks the tokens a place expects, and each match token's pattern and
+// flags as a JavaScript engine reads them. A class token is known by the
+// name of the TypeScript token that matches the same characters (row 2),
+// whose partition atoms TypeScript also spells in capitals, so the hex
+// digits of a code point escape are compared in either case; the eager
+// mark before a pattern is row 3's.
+func writtenDifferences(text string, tree map[string]any, e oracleEntry, rename func(string) string) []string {
+	var out []string
+	rules, err := writtenKeys(text, "rule")
+	if err != nil {
+		return []string{err.Error()}
+	}
+	if strings.Join(rules, " ") != strings.Join(e.RuleNames, " ") {
+		out = append(out, fmt.Sprintf("the rules are written in another order than TypeScript's\n  want %v\n  got  %v", e.RuleNames, rules))
+	}
+	names, err := writtenKeys(text, "options", "match", "token")
+	if err != nil {
+		return append(out, err.Error())
+	}
+	byName := map[string]oracleToken{}
+	var order, wantOrder []string
+	for _, tok := range e.MatchTokens {
+		byName[tok.Name] = tok
+		wantOrder = append(wantOrder, tok.Name)
+	}
+	for _, name := range names {
+		order = append(order, rename(name))
+	}
+	if strings.Join(order, " ") != strings.Join(wantOrder, " ") {
+		out = append(out, fmt.Sprintf("the match tokens are written in another order than TypeScript's\n  want %v\n  got  %v", wantOrder, order))
+	}
+	options, _ := tree["options"].(map[string]any)
+	match, _ := options["match"].(map[string]any)
+	if _, ok := match["tokenOrder"]; ok {
+		out = append(out, "the spec writes options.match.tokenOrder, which TypeScript's does not")
+	}
+	tokens, _ := match["token"].(map[string]any)
+	for _, name := range names {
+		value, _ := tokens[name].(string)
+		source, flags, ok := splitMatcher(value)
+		if !ok {
+			out = append(out, fmt.Sprintf("the match token %s is written %q, which is no regular expression", name, value))
+			continue
+		}
+		tok, ok := byName[rename(name)]
+		if !ok {
+			continue // classTokenNames names it
+		}
+		if flags != tok.Flags {
+			out = append(out, fmt.Sprintf("the match token %s is written with the flags %q, and TypeScript's %s with %q", name, flags, tok.Name, tok.Flags))
+		}
+		if hexCaseKey(source) != hexCaseKey(tok.Source) {
+			out = append(out, fmt.Sprintf("the match token %s is written /%s/, and TypeScript's %s /%s/", name, source, tok.Name, tok.Source))
+		}
+	}
+	return out
+}
+
+// writtenKeys returns the keys of the object at path in a JSON text, in
+// the order the text writes them, which a map read back cannot show.
+func writtenKeys(text string, path ...string) ([]string, error) {
+	dec := json.NewDecoder(strings.NewReader(text))
+	var failed error
+	next := func() json.Token {
+		if failed != nil {
+			return nil
+		}
+		tok, err := dec.Token()
+		if err != nil {
+			failed = err
+		}
+		return tok
+	}
+	// walk reads the value the decoder is at, and returns the keys of the
+	// object that path names inside it (the value's own keys for an empty
+	// path), or nil when it holds no such object.
+	var walk func(path []string) []string
+	walk = func(path []string) []string {
+		delim, ok := next().(json.Delim)
+		if !ok {
+			return nil
+		}
+		var found []string
+		for failed == nil && dec.More() {
+			if delim == '[' {
+				walk(nil)
+				continue
+			}
+			key, _ := next().(string)
+			switch {
+			case len(path) == 0:
+				found = append(found, key)
+				walk(nil)
+			case key == path[0]:
+				found = walk(path[1:])
+			default:
+				walk(nil)
+			}
+		}
+		next()
+		return found
+	}
+	found := walk(path)
+	if failed != nil {
+		return nil, fmt.Errorf("the pure-data spec this port writes cannot be read for its key order: %v", failed)
+	}
+	return found, nil
+}
+
+// splitMatcher reads a match token as the serializer writes it, an
+// optional eager mark and then a regular expression's literal,
+// `@~/^[a-z]/u`, into its pattern and its flags.
+func splitMatcher(value string) (source, flags string, ok bool) {
+	rest := strings.TrimPrefix(strings.TrimPrefix(value, "@"), "~")
+	last := strings.LastIndex(rest, "/")
+	if !strings.HasPrefix(value, "@") || !strings.HasPrefix(rest, "/") || last < 1 {
+		return "", "", false
+	}
+	return rest[1:last], rest[last+1:], true
+}
+
+// A JavaScript code point escape, `\uXXXX` or `\u{X...}`.
+var jsCodePointEscape = regexp.MustCompile(`\\u\{[0-9a-fA-F]+\}|\\u[0-9a-fA-F]{4}`)
+
+// hexCaseKey writes the hex digits of every code point escape of a
+// pattern in small letters and leaves the rest as it is.
+func hexCaseKey(source string) string {
+	return jsCodePointEscape.ReplaceAllStringFunc(source, strings.ToLower)
+}
+
 // ---- The canonical text ------------------------------------------------
 //
-// The same text gen-oracle.js digests, taken after the normalisations
-// DIVERGENCE.md 7 records: keys sorted (row 1), a token set written as its
-// members wherever a rule names it and the sets as a sorted list of those,
-// with every class token under the name of the TypeScript token that
-// matches the same characters (row 2), and each maximal run of adjacent
-// alternates alike in everything but `s` sorted (row 5). Keep it in step
-// with pureParts there.
+// The same text gen-oracle.js digests, with keys sorted, since a map read
+// back keeps no order (writtenDifferences compares the order), and taken
+// after the normalisations DIVERGENCE.md 7 records: a token set written as
+// its members wherever a rule names it and the sets as a sorted list of
+// those, with every class token under the name of the TypeScript token
+// that matches the same characters (row 2), and each maximal run of
+// adjacent alternates alike in everything but `s` sorted (row 5). Keep it
+// in step with pureParts there.
 
 type pureParts struct {
 	fixed     map[string]string
@@ -485,6 +626,8 @@ func purePartsOf(spec map[string]any, rename func(string) string) (*pureParts, e
 	}
 	if match, ok := rest["match"].(map[string]any); ok {
 		delete(match, "token")
+		// Written by tabnas-bnf's Go serializer before 0.1.30, and
+		// reported by writtenDifferences.
 		delete(match, "tokenOrder")
 		if len(match) == 0 {
 			delete(rest, "match")

@@ -48,7 +48,7 @@ so a table that grows a row without growing a pin is visible:
 | 4 | `the_nesting_cap_falls_exactly_where_the_shared_compiler_does`, `nesting_far_past_the_cap_is_a_diagnostic`, `the_nesting_cap_falls_where_the_recorded_table_says` |
 | 5 | `an_engine_message_quotes_a_whole_astral_character` |
 | 6 | `an_oversized_repetition_count_saturates` |
-| 7 | `TestDivergenceTheMatchTokensOrderIsAListOfItsOwn`, `TestDivergenceAClassIsNamedForItsRE2Spelling`, `TestDivergenceEveryClassIsEager`, `TestDivergenceAClassLosesItsUFlag` and `TestDivergenceALoopsExitGuardsAreInNameOrder` in `go/divergence_test.go`, one per row, and `TestOracleAgreesWithTypeScript` in `go/oracle_test.go`, which compares the rest of the spec with each row set aside by its own normalisation |
+| 7 | `TestDivergenceAClassIsNamedForItsRE2Spelling`, `TestDivergenceEveryClassIsEager` and `TestDivergenceALoopsExitGuardsAreInNameOrder` in `go/divergence_test.go`, one per open row, and `TestOracleAgreesWithTypeScript` in `go/oracle_test.go`, which compares the rest of the spec with each open row set aside by its own normalisation, and holds what rows 1 and 4 recorded, now closed, to TypeScript's |
 
 Each pin was bite-checked: the expectation was altered and the case
 watched go red. A row whose expectation is the same as the canonical's
@@ -289,10 +289,12 @@ Each spec is taken as a host reads it: TypeScript's
 `compileSpec(gbnfConvert(src, { builtins: true }), { recognition: false,
 strict: true })`, and Go's `bnf.ToJsonic(bnf.ToPureSpec(spec), true, 2)`
 over `Gbnf(src, &ConvertOptions{Builtins: true})`. Both refuse the same
-33 sources. Of the 186 both compile, none is the same byte for byte; 91
-are the same once the first two rows below are set aside; and the other
-95 differ in the rows after them, or in entry 1. bnf/go v0.1.28, which
-`go/go.mod` requires, and v0.1.29 give the same 219 answers.
+33 sources. Of the 186 both compile, none was the same byte for byte; 91
+were the same once rows 1 and 2 were set aside; and the other 95 differed
+in rows 3 to 5, or in entry 1. bnf/go v0.1.28, which `go/go.mod` then
+required, and v0.1.29 gave the same 219 answers. Rows 1 and 4 have since
+closed (below): they are gone from the table, and the other rows keep
+their numbers, which the tests and other repositories cite.
 
 Until this port's IR carried `HasCaseSens` (tabnas/alchemy-cli#22,
 registered there as `readerDefects["gbnf"]`), 102 of the 186 also
@@ -306,13 +308,11 @@ oracle.
 
 | row | what | TypeScript | Go | sources |
 |---|---|---|---|---|
-| 1 | key order | the compiler's: the grammar's rules, then its tokens | every key in name order, the match tokens' order in `options.match.tokenOrder` | all 186; the 112 with a class carry `tokenOrder` |
 | 2 | a class token's name, and a token set's, which is its class's | `#RX___U0061__U007A`, for `[\u0061-\u007a]`; the compiler's partition atoms spelled in capitals (`\u007A`) | `#RX___X_61___X_7A`, for RE2's `[\x{61}-\x{7a}]`, the pattern written back as `[\u0061-\u007a]`; the atoms in small letters | the 112 with a class; the 59 with partition atoms and their token sets, in 33 of them an atom whose hex digits differ in case |
 | 3 | `eager$` on a class | only where `markClassesEager` proves dropping the token-column gate safe (`@~/`), cleared otherwise (`@/`) | every class, as the shared compiler flags them | 81 |
-| 4 | a class's `u` flag | `u` on a negated class, one past U+FFFF and `[\s\S]` | no flag but `i` is written, and a code point past U+FFFF is written `\u1f600`, which JavaScript reads as `\u1f60` then `0` | 7 negated classes; 36 with a range past U+FFFF |
 | 5 | a run of adjacent alternates alike in everything but the token they name, one per token of a FIRST or FOLLOW set: a dispatch, a loop's exits, a probe's scan | in the order the compiler meets the tokens | in name order: the same alternates | 43; 1,430 rules |
 
-**Reason.** Rows 1, 2, 4 and 5 are the shared compiler's Go serializer
+**Reason.** Rows 2 and 5 are the shared compiler's Go serializer
 and emitter, which this port hands its IR to. Go's RE2 has no `\u`
 escape, so a class is compiled as `\x{…}`, and the token is named for
 that text before the serializer translates the pattern back
@@ -321,43 +321,40 @@ spelling, and its port was verified "with token names normalised across
 the two runtimes' regex spellings". Go reads every FIRST and FOLLOW set in
 name order (`sortedKeys`), where TypeScript's Sets keep the order the
 compiler adds to them, so each run of per-token alternates comes out
-sorted (row 5). Go's regexps carry no flags but
-`(?i)`, so `jsRegexFlags` writes no `u`, and `goHexToJsUnicode` pads a
-code point to four digits without bracing a longer one; `ts/doc/known-gaps.md`
-section 5 records the other direction, a TypeScript class's `u` that Go's RE2
-cannot load. Row 3 is this
-repository's: TypeScript's front-end clears the compiler's `eager$` from
-every class unless both of `markClassesEager`'s conditions hold
-(`clearClassesEager`), and the Go front-end ports neither function, so
-every class keeps the flag. AGENTS.md's "Not implemented yet" says so.
+sorted (row 5). Row 3 is this repository's: TypeScript's front-end
+clears the compiler's `eager$` from every class unless both of
+`markClassesEager`'s conditions hold (`clearClassesEager`), and the Go
+front-end ports neither function, so every class keeps the flag.
+AGENTS.md's "Not implemented yet" says so.
 
-**What it costs.** In a Go engine nothing in rows 1, 2, 4 and 5 changes
+**What it costs.** In a Go engine nothing in rows 2 and 5 changes
 which strings parse: the corpus grades identically in both runtimes, in
 both directions (`go/gbnf_test.go`), and `go/oracle_test.go` holds
 every other part of the spec to TypeScript's. Row 3 does lex differently
 where TypeScript keeps the gate, and a mis-cut can only make a parse
-fail, never succeed (AGENTS.md,
-"`eagerClasses` is conditional"). A spec a Go host serializes is another
-matter for a JavaScript engine or a render that reads it: row 4 hands
-one a class that matches other characters, and the translation renders
-already refuse a class whose flags change what it matches, and Go's
-`tokenOrder`.
+fail, never succeed (AGENTS.md, "`eagerClasses` is conditional"). A spec
+a Go host serialized before tabnas-bnf 0.1.30 was another matter for a
+JavaScript engine or a render that reads it: row 4 handed one a class
+that matches other characters, and row 1 lost the rule order that ranks
+the tokens. The translation renders still refuse a class whose flags
+change what it matches, and a `tokenOrder`, which such a spec carries.
 
-**Owner.** Rows 1, 2, 4 and 5:
+**Owner.** Rows 2 and 5:
 [`tabnas-bnf`](https://github.com/tabnas/bnf)'s Go serializer and
-emitter. Row 4 is the one worth repairing first, since it is the only
-one that changes what a serialized spec matches. Row 3: this repository,
-by porting `markClassesEager` and `clearClassesEager` to `go/`.
+emitter. Row 3: this repository, by porting `markClassesEager` and
+`clearClassesEager` to `go/`.
 
-**Closing, rows 1 and 4.**
-[tabnas/bnf#114](https://github.com/tabnas/bnf/pull/114) writes a Go spec
-in the order TypeScript writes it, with no `tokenOrder`, and its matchers
-as TypeScript writes them, the `u` flag and braced code points included.
-Each repository tests the other at its default branch, so the pins of
-rows 1 and 4 follow the compiler they are built against
-(`writesTypeScriptsSpelling` in `go/divergence_test.go`): while the
-serializer writes `tokenOrder` they assert this port's spelling, as the
-table gives it, and once it writes none they assert TypeScript's, the
-match tokens in the order the compiler allocated them and each class with
-its `u`. When `go/go.mod` takes the bnf release that carries #114, delete
-rows 1 and 4 and their pins.
+**Closed, rows 1 and 4.**
+[tabnas/bnf#114](https://github.com/tabnas/bnf/pull/114), released in
+tabnas-bnf 0.1.30, writes a Go spec in the order TypeScript writes it,
+with no `tokenOrder`, and its matchers as TypeScript writes them, the `u`
+flag and braced code points included. `go/go.mod` requires that release
+from gbnf 0.1.19, so the two rows and their pins are gone, and
+`go/oracle_test.go` holds what they recorded to TypeScript's over the
+oracle's sources (`writtenDifferences`): the order the rules and the
+match tokens are written in, and each match token's pattern and flags as
+written, its code point escapes' hex digits in either case (row 2).
+Against bnf/go v0.1.28 it reports all 185 sources' rule order, the 113
+that write `tokenOrder`, 51 whose match tokens are written in another
+order, and 46 match tokens written with other flags than TypeScript's
+and 39 in another spelling.
