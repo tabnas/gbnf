@@ -1,6 +1,6 @@
 {
  "source": "ggml-org/llama.cpp tests/test-json-schema-to-grammar.cpp",
- "commit": "ff30363a0e3e2630828309ef5a37da5d1d40396c",
+ "commit": "296538adea19ff397100bf8e7d71f302d2d2bb35",
  "license": "MIT (llama.cpp)",
  "note": "Expected GBNF outputs of llama.cpp's JSON-schema-to-grammar converter, verbatim. The most common real-world GBNF: what tools actually feed a sampler.",
  "cases": [

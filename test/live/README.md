@@ -3,19 +3,20 @@
 `json-schema-corpus.json` holds the expected GBNF outputs of
 llama.cpp's JSON-schema-to-grammar converter, extracted verbatim from
 [`tests/test-json-schema-to-grammar.cpp`](https://github.com/ggml-org/llama.cpp/blob/master/tests/test-json-schema-to-grammar.cpp)
-at commit `ff30363a0e3e2630828309ef5a37da5d1d40396c` (release b11497,
-fetched 2026-10-08). Each of the 77 cases records the case name, the
+at commit `296538adea19ff397100bf8e7d71f302d2d2bb35` (release b11589,
+fetched 2026-10-13). Each of the 77 cases records the case name, the
 source JSON schema, and the grammar the converter is specified to emit.
 
 A case is taken from each `test({…})` call that expects `SUCCESS` and
 writes both the schema and the grammar as raw strings (`R"""(…)"""`), in
 file order. Each string is kept verbatim, except that the grammar drops
-the newline that opens its raw string. At b11497, as at b11200 (the file
-is byte-identical at the two), the rule leaves out one such call,
-`empty schema (any value)`, whose schema is the plain string `"{}"`, and
-the `sub-schema $ref` case that `main()` builds directly. The 70 cases
-at `030ebb558a5820b444a8f836ed5cdd46c9b4bd7a` follow the same rule, so a
-refresh can be checked by extracting the old pin and comparing.
+the newline that opens its raw string. At b11589, as at b11497 and
+b11200 (the file is byte-identical at the three), the rule leaves out
+one such call, `empty schema (any value)`, whose schema is the plain
+string `"{}"`, and the `sub-schema $ref` case that `main()` builds
+directly. The 70 cases at `030ebb558a5820b444a8f836ed5cdd46c9b4bd7a`
+follow the same rule, so a refresh can be checked by extracting the old
+pin and comparing.
 
 These are the most common GBNF in the wild: `llama-cpp-python`,
 `node-llama-cpp` and llama.cpp's own server all generate this shape
