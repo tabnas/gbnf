@@ -29,10 +29,10 @@
 //! (`gbnf_group_depth`, DIVERGENCE.md 4).
 
 use std::rc::Rc;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use indexmap::IndexMap;
-use tabnas::{ActionError, Rule, Tabnas, Value};
+use tabnas::{ActionError, Context, LexMatcher, Lexer, Rule, Tabnas, Value};
 
 use crate::converter::GbnfParseError;
 use crate::parser_gbnf::{
@@ -414,11 +414,144 @@ fn register_tree_refs(parser: &mut Tabnas) {
 /// let tree = tabnas_gbnf::make().parse("root ::= a").unwrap();
 /// assert_eq!(tree.to_json()["rules"][0]["name"], "root");
 /// ```
+///
+/// It reads a source a window at a time when it is parsed from a reader
+/// ([`Tabnas::parse_reader`], `lex.window`): its matchers read the text only
+/// through the window, the meta-grammar's match tokens behind
+/// [`gbnf_reach`].
 #[must_use]
 pub fn make() -> Tabnas {
     // The meta-grammar is this crate's own, so it always installs.
-    build_parser(register_tree_refs, &TREE_ERRORS)
-        .expect("gbnf: the tree parser installs its own meta-grammar")
+    let mut parser = build_parser(register_tree_refs, &TREE_ERRORS)
+        .expect("gbnf: the tree parser installs its own meta-grammar");
+    parser
+        .set_options(|options| {
+            options.lex.window = true;
+            options.lex.matchers.insert(
+                "gbnf-reach".to_string(),
+                reach_matcher("gbnf-reach", gbnf_reach),
+            );
+        })
+        .expect("gbnf: the tree parser takes the window and its reach");
+    parser
+}
+
+/// Whether the character that decides how far GBNF's own matchers read lies
+/// in `window`, the text from the cursor, and when it does not, how many
+/// characters they would read there. A string, a class and a tokenizer
+/// token read to the quote, bracket or angle that closes them, a backslash
+/// taking the character after it, and `!` the `<` after it; a run of
+/// postfix operators reads every operator, count, comma, brace and space of
+/// the run and the character after; a name reads its word and the
+/// character after; `::=` reads three characters. Every other token is the
+/// engine's, whose matchers read the window themselves.
+fn gbnf_reach(window: &str) -> Result<(), usize> {
+    let mut chars = window.chars();
+    match chars.next() {
+        None => Err(0),
+        Some('"') => closing(chars, 1, '"'),
+        Some('[') => closing(chars, 1, ']'),
+        Some('<') => closing(chars, 1, '>'),
+        Some('!') => match chars.next() {
+            None => Err(1),
+            Some('<') => closing(chars, 2, '>'),
+            Some(_) => Ok(()),
+        },
+        Some(':') => fixed(window, 3),
+        Some('*' | '+' | '?' | '{') => run(chars, 1, |c| {
+            matches!(
+                c,
+                '*' | '+' | '?' | '{' | '}' | ',' | '0'..='9' | ' ' | '\t' | '\r' | '\n'
+            )
+        }),
+        Some(c) if is_word(c) => run(chars, 1, is_word),
+        Some(_) => Ok(()),
+    }
+}
+
+/// A character of a GBNF name, llama.cpp's `is_word_char`.
+fn is_word(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '-'
+}
+
+/// Whether `end` follows in `chars` where no backslash escapes it, which
+/// decides where the token ends; and when it does not, the characters read,
+/// `read` before `chars` among them.
+fn closing(chars: impl Iterator<Item = char>, mut read: usize, end: char) -> Result<(), usize> {
+    let mut escaped = false;
+    for c in chars {
+        read += 1;
+        if escaped {
+            escaped = false;
+        } else if c == '\\' {
+            escaped = true;
+        } else if c == end {
+            return Ok(());
+        }
+    }
+    Err(read)
+}
+
+/// Whether the unit after `fixed` characters of `window` is in it: a token
+/// of `fixed` characters is decided once they are held; and when they are
+/// not, the characters read.
+fn fixed(window: &str, fixed: usize) -> Result<(), usize> {
+    let held = window.chars().take(fixed).count();
+    if held == fixed {
+        Ok(())
+    } else {
+        Err(held)
+    }
+}
+
+/// Whether a character outside `within` follows the run of `chars` that
+/// `within` holds, which decides where the run ends; and when none does,
+/// the characters read, `read` before `chars` among them.
+fn run(
+    chars: impl Iterator<Item = char>,
+    mut read: usize,
+    within: impl Fn(char) -> bool,
+) -> Result<(), usize> {
+    for c in chars {
+        if !within(c) {
+            return Ok(());
+        }
+        read += 1;
+    }
+    Err(read)
+}
+
+/// A lexer matcher that runs before every other one and cuts no token: in a
+/// parse from a reader a window at a time, the text after the cursor is the
+/// window's, which may end inside a token, so that a match token's
+/// expression would match a shorter token, or none, where the whole text
+/// has a longer one. It reads the window on, twice as far each time, until
+/// the character that decides where the token ends lies inside it (`reach`)
+/// or the source has ended, so that every matcher after it sees what the
+/// whole text shows it. A whole text is all read.
+fn reach_matcher(name: &str, reach: fn(&str) -> Result<(), usize>) -> LexMatcher {
+    LexMatcher {
+        name: name.to_string(),
+        order: 900_000.0,
+        matcher: None,
+        imperative: Some(Arc::new(
+            move |lexer: &mut Lexer<'_>, _rule: &mut Rule, _context: &mut Context| {
+                if !lexer.windowed() {
+                    return None;
+                }
+                let mut ahead = 1;
+                loop {
+                    let held = lexer.fill(ahead);
+                    match reach(lexer.window()) {
+                        Ok(()) => return None,
+                        Err(_) if !held => return None,
+                        Err(read) => ahead = (read + 1).max(2 * ahead),
+                    }
+                }
+            },
+        )),
+        factory: None,
+    }
 }
 
 /// A GBNF document read whole as the tree. A source the meta-grammar

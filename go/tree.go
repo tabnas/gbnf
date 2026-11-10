@@ -358,6 +358,10 @@ func treeActs() *gbnfActs {
 // parser a host streams a document through with the part, whose rule
 // passes the part reads, and whose value is the tree, an
 // *tabnas.OrderedMap (nil for an empty source, which makes no pass).
+//
+// It reads a source a window at a time when it is parsed from a reader
+// (Tabnas.ParseReader, Lex.Window): its matchers read the text only through
+// the window, the meta-grammar's match tokens behind gbnfReach.
 func Make() *tabnas.Tabnas {
 	opts := gbnfOptions()
 	opts.Error = treeOptions.Error
@@ -369,7 +373,123 @@ func Make() *tabnas.Tabnas {
 	if len(acts.bound) != len(acts.state)+len(acts.alt) {
 		panic("gbnf: the tree declares an action the meta-grammar does not take")
 	}
+	window := true
+	tn.SetOptions(tabnas.Options{Lex: &tabnas.LexOptions{
+		Window: &window,
+		Match:  map[string]*tabnas.MatchSpec{"gbnf-reach": reachMatcher(gbnfReach)},
+	}})
 	return tn
+}
+
+// gbnfReach reports whether the byte that decides how far GBNF's own
+// matchers read lies in window, the text from the cursor, and when it does
+// not, how many bytes they would read there. A string, a class and a
+// tokenizer token read to the quote, bracket or angle that closes them, a
+// backslash taking the byte after it, and `!` the `<` after it; a run of
+// postfix operators reads every operator, count, comma, brace and space of
+// the run and the byte after; a name reads its word and the byte after;
+// `::=` reads three bytes. Every other token is the engine's, whose
+// matchers read the window themselves.
+func gbnfReach(window string) (bool, int) {
+	if window == "" {
+		return false, 0
+	}
+	switch c := window[0]; {
+	case c == '"':
+		return closingReach(window, 1, '"')
+	case c == '[':
+		return closingReach(window, 1, ']')
+	case c == '<':
+		return closingReach(window, 1, '>')
+	case c == '!':
+		if len(window) < 2 {
+			return false, 1
+		}
+		if window[1] == '<' {
+			return closingReach(window, 2, '>')
+		}
+		return true, 1
+	case c == ':':
+		return fixedReach(window, 3)
+	case c == '*' || c == '+' || c == '?' || c == '{':
+		return run(window, 1, func(c byte) bool {
+			return strings.IndexByte("*+?{},0123456789 \t\r\n", c) >= 0
+		})
+	case isWordByte(c):
+		return run(window, 1, isWordByte)
+	}
+	return true, 0
+}
+
+// isWordByte is a byte of a GBNF name, llama.cpp's is_word_char.
+func isWordByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'
+}
+
+// closingReach reports whether end follows from at on in window where no
+// backslash escapes it, which decides where the token ends; and when it
+// does not, the bytes read.
+func closingReach(window string, at int, end byte) (bool, int) {
+	for ; at < len(window); at++ {
+		switch window[at] {
+		case '\\':
+			at++
+		case end:
+			return true, at
+		}
+	}
+	return false, len(window)
+}
+
+// fixedReach reports whether window holds the n bytes a token of n bytes is
+// decided by; and when it does not, the bytes read.
+func fixedReach(window string, n int) (bool, int) {
+	if len(window) >= n {
+		return true, n
+	}
+	return false, len(window)
+}
+
+// run reports whether a byte outside within follows the run that within
+// holds from at on in window, which decides where the run ends; and when
+// none does, the bytes read.
+func run(window string, at int, within func(byte) bool) (bool, int) {
+	for ; at < len(window); at++ {
+		if !within(window[at]) {
+			return true, at
+		}
+	}
+	return false, at
+}
+
+// reachMatcher is a lexer matcher that runs before every other one and
+// cuts no token: in a parse from a reader a window at a time, the text after
+// the cursor is the window's, which may end inside a token, so that a match
+// token's expression would match a shorter token, or none, where the whole
+// text has a longer one. It reads the window on, twice as far each time,
+// until the byte that decides where the token ends lies inside it (reach)
+// or the source has ended, so that every matcher after it sees what the
+// whole text shows it. A whole text is all read.
+func reachMatcher(reach func(string) (bool, int)) *tabnas.MatchSpec {
+	return &tabnas.MatchSpec{
+		Order: 900000,
+		Make: func(_ *tabnas.LexConfig, _ *tabnas.Options) tabnas.LexMatcher {
+			return func(lex *tabnas.Lex, _ *tabnas.Rule) *tabnas.Token {
+				if !lex.Windowed() {
+					return nil
+				}
+				ahead := 1
+				for {
+					held := lex.Fill(ahead)
+					decided, read := reach(lex.Window())
+					if decided || !held {
+						return nil
+					}
+					ahead = max(read+1, 2*ahead)
+				}
+			}
+		},
+	}
 }
 
 // ParseGbnfTree reads a GBNF document whole as the tree. A source the

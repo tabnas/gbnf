@@ -323,14 +323,85 @@ function treeRules(): typeof gbnfRules {
 const gbnfTreeRules = treeRules()
 
 
+// Where GBNF's own matchers stop reading, in `w`, the text from the
+// cursor: the index of the unit that decides how far their token runs,
+// past which none of them reads. A string, a class and a tokenizer token
+// read to the quote, bracket or angle that closes them, a backslash taking
+// the unit after it, and `!` the `<` after it; a run of postfix operators
+// reads every operator, count, comma, brace and space of the run and the
+// unit after; a name reads its word and the unit after; `::=` reads three
+// units. Every other token is the engine's, whose matchers read the window
+// themselves.
+function gbnfReach(w: string): number {
+  switch (w[0]) {
+    case '"':
+      return closing(w, 1, '"')
+    case '[':
+      return closing(w, 1, ']')
+    case '<':
+      return closing(w, 1, '>')
+    case '!':
+      return '<' === w[1] ? closing(w, 2, '>') : 1
+    case ':':
+      return 2
+    case '*':
+    case '+':
+    case '?':
+    case '{':
+      return (/^[*+?{},0-9 \t\r\n]*/.exec(w) as RegExpExecArray)[0].length
+    default:
+      return (/^[A-Za-z0-9_-]*/.exec(w) as RegExpExecArray)[0].length
+  }
+}
+
+// The index in `w` of the first `end` at or after `from` that no backslash
+// escapes, or `w.length` where there is none.
+function closing(w: string, from: number, end: string): number {
+  for (let i = from; i < w.length; i++) {
+    if ('\\' === w[i]) i++
+    else if (end === w[i]) return i
+  }
+  return w.length
+}
+
+
+// A lexer matcher that runs before every other one and cuts no token: in a
+// parse from a reader a window at a time (`lex.window`, admin ADR-30), the
+// text after the cursor is the window's, which may end inside a token, so
+// that a match token's expression would match a shorter token, or none,
+// where the whole text has a longer one. It reads the window on, twice as
+// far each time, until the unit that decides where the token ends lies
+// inside it (`reach`) or the source has ended, so that every matcher after
+// it sees what the whole text shows it. A whole text is all read.
+function reachMatcher(reach: (w: string) => number): any {
+  return {
+    order: 9e5,
+    make: () => (lex: any) => {
+      if (!lex.windowOpen) return undefined
+      let ahead = 1
+      for (;;) {
+        lex.fill(ahead)
+        const w: string = lex.window()
+        const decides = reach(w)
+        if (decides < w.length || !lex.windowOpen) return undefined
+        ahead = Math.max(decides + 1, 2 * w.length)
+      }
+    },
+  }
+}
+
+
 // A fresh parser that reads a GBNF document as the tree: the parser a
 // host streams a document through with the part, whose rule passes the
-// part reads, and whose value is the tree.
+// part reads, and whose value is the tree. It reads a source a window at a
+// time when it is parsed from a reader: its matchers read the text only
+// through the window, the meta-grammar's match tokens behind `gbnfReach`.
 function make(): any {
   const { Tabnas } = require('@tabnas/parser')
   const options = gbnfOptions()
   options.error = { ...TREE_OPTIONS.error }
   options.hint = { ...TREE_OPTIONS.hint }
+  options.lex = { window: true, match: { 'gbnf-reach': reachMatcher(gbnfReach) } }
   const tn = new Tabnas(options)
   installGbnfRules(tn, gbnfTreeRules)
   return tn
