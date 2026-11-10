@@ -1,0 +1,109 @@
+; GBNF's transducer part: the tree's JSON events from the rule passes of
+; the GBNF meta-grammar, for a host that reads parser events (dmog's
+; `translate` and `run --grammar gbnf`). Every event is the one the walk
+; of the tree `parseGbnfTree` builds gives: the schema `grammar-rules`
+; (tabnas/bnf's docs/grammar-rules.md, and section 13.1 of alchemy's
+; docs/streaming-plan.md), a grammar's rules as the text writes them, in
+; source order, each an object whose `type` comes first and whose other
+; members follow in the order the schema lists them. GBNF starts from the
+; rule named root wherever the text defines it, so the grammar's `start`,
+; "root", comes before any rule. It is hand-written over the passes of
+; `make()`, the parser whose value that tree is.
+;
+; The passes. `gbnf` holds the grammar and `prod` a rule, a production
+; replacing the one before it; `prod` reads its name and its `::=`, and
+; `alts` its alternatives, each a `seq` of elements. An element is an
+; `elem`, the `atom` it pushes, whose open reads what the element is (a
+; string, a class, `.`, a tokenizer terminal, a rule name, or the `(` of a
+; group, whose alternatives are an `alts` of their own, and whose close
+; reads the `)`), and the elem's close, which reads the run of postfix
+; operators that follows it. A token whose text needs reading carries
+; what it reads as its value, which the meta-grammar's action gives it: a
+; string its text, a class its `negated` and `members`, a tokenizer
+; terminal its `negated` and `text`, and a postfix run its repetitions,
+; the innermost first. A rule whose close pushes another (`alts` on `|`,
+; `seq` on its next element) is still open, so a close ends its rule only
+; where its alternate pushes nothing.
+;
+; An element's `repeat` is its last member and its operators follow it,
+; so nothing waits: the state is whether any pass came (a source that
+; makes none, the empty file, is the grammar of no rules at finish).
+
+; A repetition's events.
+def gbnf-transduce-repetition [rep]
+  match (get :max rep)
+    case missing [object-start (key "min") (scalar (get :min rep)) object-end]
+    case max [object-start (key "min") (scalar (get :min rep)) (key "max") (scalar max) object-end]
+
+; A class's member's events.
+def gbnf-transduce-member [m]
+  vector object-start (key "from") (scalar (get :from m)) (key "to") (scalar (get :to m)) object-end
+
+; What an atom's open writes: an element up to its last member, or a
+; group up to the start of its alternatives.
+def gbnf-transduce-atom [rule]
+  let [token (transduce-token 0 rule)]
+    let [val (get :val token)]
+      match (get :name token)
+        case "#GS" [object-start (key "type") (scalar "literal") (key "text") (scalar val) (key "caseSensitive") (scalar true)]
+        case "#CC" (push-all (push array-end (flatten (map gbnf-transduce-member (as-vector (get :members val))))) [object-start (key "type") (scalar "class") (key "negated") (scalar (get :negated val)) (key "members") array-start])
+        case "#DOT" [object-start (key "type") (scalar "any")]
+        case "#TOK" [object-start (key "type") (scalar "token") (key "negated") (scalar (get :negated val)) (key "text") (scalar (get :text val))]
+        case "#NM" [object-start (key "type") (scalar "reference") (key "name") (scalar (get :src token))]
+        case "#LP" [object-start (key "type") (scalar "group") (key "alternatives") array-start]
+        case _ (fail :protocol-order "an atom opens on a string, a class, a dot, a tokenizer terminal, a name or (")
+
+; An element's close: its repetitions, where a postfix run follows it,
+; then the end of its object.
+def gbnf-transduce-element-end [rule]
+  match (count (get :tokens rule))
+    case 0 [object-end]
+    case _
+      let [reps (as-vector (get :val (transduce-token 0 rule)))]
+        push-all [array-end object-end] (push-all (flatten (map gbnf-transduce-repetition reps)) [(key "repeat") array-start])
+
+; The rule a pass's alternate pushes, or "".
+def gbnf-transduce-pushes [rule]
+  match (get :alt rule)
+    case missing ""
+    case alt (get :p alt)
+
+def gbnf-transduce-open [rule]
+  match (get :name rule)
+    case "gbnf" [object-start (key "type") (scalar "grammar") (key "start") (scalar "root") (key "rules") array-start]
+    case "prod" [object-start (key "type") (scalar "rule") (key "name") (scalar (get :src (transduce-token 0 rule))) (key "alternatives") array-start]
+    case "alts" []
+    case "seq" [array-start]
+    case "elem" []
+    case "atom" (gbnf-transduce-atom rule)
+    case _ (fail :protocol-order "a rule pass of a rule the GBNF meta-grammar does not have")
+
+def gbnf-transduce-close [rule]
+  match (get :name rule)
+    case "gbnf" [array-end object-end]
+    case "prod" [object-end]
+    case "alts"
+      match (gbnf-transduce-pushes rule)
+        case "seq" []
+        case _ [array-end]
+    case "seq"
+      match (gbnf-transduce-pushes rule)
+        case "elem" []
+        case _ [array-end]
+    case "elem" (gbnf-transduce-element-end rule)
+    case "atom" []
+    case _ (fail :protocol-order "a rule pass of a rule the GBNF meta-grammar does not have")
+
+def gbnf-transduce-step [started pass]
+  match pass
+    case (open rule) (transition true (gbnf-transduce-open rule))
+    case (close rule) (transition true (gbnf-transduce-close rule))
+
+; A source that made no pass is the grammar of no rules.
+def gbnf-transduce-finish [started]
+  match started
+    case false [object-start (key "type") (scalar "grammar") (key "start") (scalar "root") (key "rules") array-start array-end object-end]
+    case true []
+
+def gbnf-transduce [input]
+  as-events (scan-emit false gbnf-transduce-step gbnf-transduce-finish (parser-events input))

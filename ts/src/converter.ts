@@ -383,7 +383,18 @@ function getGbnfParser(): (src: string) => RawProduction[] {
 
   // GBNF defines its own grammar from scratch, so no grammar plugin is
   // loaded — just the bare engine with the token set below.
-  const tn = new Tabnas({
+  const tn = new Tabnas(gbnfOptions())
+  installGbnfRules(tn, gbnfRules)
+
+  _gbnfParser = (src: string) => tn.parse(src) as RawProduction[]
+  return _gbnfParser
+}
+
+
+// The engine options the GBNF meta-grammar reads its source with. The IR
+// parser above and the tree parser (`tree.ts`) share them.
+function gbnfOptions(): any {
+  return {
     rule: { start: 'gbnf' },
     fixed: {
       token: {
@@ -447,17 +458,21 @@ function getGbnfParser(): (src: string) => RawProduction[] {
         multi: null as any,
       },
     },
-  })
+  }
+}
 
-  // Drop the default JSON rules — they would otherwise compete with
-  // ours for the starting token set.
+
+// Install a rule table of the GBNF meta-grammar's shape on `tn`, in place
+// of the default JSON rules, which would otherwise compete with it for
+// the starting token set.
+function installGbnfRules(tn: any, table: typeof gbnfRules): void {
   const existing = tn.rule()
   for (const name of Object.keys(existing)) {
     tn.rule(name, null)
   }
 
-  for (const name of Object.keys(gbnfRules)) {
-    const spec = gbnfRules[name]
+  for (const name of Object.keys(table)) {
+    const spec = table[name]
     tn.rule(name, (rs: any) => {
       if (spec.bo) rs.bo(spec.bo)
       if (spec.bc) rs.bc(spec.bc)
@@ -465,9 +480,6 @@ function getGbnfParser(): (src: string) => RawProduction[] {
       if (spec.close) rs.close(spec.close)
     })
   }
-
-  _gbnfParser = (src: string) => tn.parse(src) as RawProduction[]
-  return _gbnfParser
 }
 
 
@@ -1249,6 +1261,10 @@ export {
   emitGrammarSpec,
   eliminateLeftRecursion,
   gbnfRules,
+  gbnfOptions,
+  installGbnfRules,
+  readChar,
+  REP,
   GbnfParseError,
   GbnfCompileError,
 }

@@ -147,6 +147,36 @@ cannot express raises `GbnfRenderError` rather than being approximated,
 with one exception: a case-INSENSITIVE literal has an exact GBNF
 encoding, so `"hi"` becomes `[hH] [iI]` rather than being refused.
 
+## The tree for translation
+
+A host that translates a grammar between notations reads it as the
+schema `grammar-rules`, which `tabnas-bnf` defines and the front-ends of
+the grammar notations share: the rules as the text writes them, in
+source order, before any compiler has seen them. `parse_gbnf_tree` reads
+it whole, and `make` builds the parser that yields it, which a host
+streams through the transducer part `translate()` carries as
+`transduce`, beside the render that writes the tree back as GBNF.
+
+```rust
+use tabnas_gbnf::parse_gbnf_tree;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let tree = parse_gbnf_tree("root ::= [a-z]+ | \"x\"?")?.to_json();
+    assert_eq!(tree["start"], "root");
+    let rule = &tree["rules"][0];
+    assert_eq!(rule["name"], "root");
+    assert_eq!(rule["alternatives"][0][0]["type"], "class");
+    assert_eq!(rule["alternatives"][1][0]["repeat"][0]["max"], 1.0);
+    Ok(())
+}
+```
+
+The tree parser refuses a source the tree has no room for with a code,
+which the `code` of `GbnfParseError` carries: an escape that names no
+character, `gbnf_escape`, a class range that ends below where it starts,
+an empty class, a repetition whose most is below its least, a count past
+2^53 - 1, and a group left open.
+
 ## The command
 
 `gbnf-check` compiles a grammar and checks samples against it, with no

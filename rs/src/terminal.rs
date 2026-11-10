@@ -272,7 +272,7 @@ pub(crate) fn decode_char_class(raw: &str, sp: Option<Value>) -> Result<Value, S
 // ---- repetition ------------------------------------------------------
 
 /// The individual operators within a postfix run, left to right.
-fn operator_pattern() -> &'static Regex {
+pub(crate) fn operator_pattern() -> &'static Regex {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
     PATTERN.get_or_init(|| {
         Regex::new(&format!(r"[*+?]|{}", rep_capturing()))

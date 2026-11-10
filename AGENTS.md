@@ -166,10 +166,15 @@ or narrows an accepted language defeats the purpose stated there.
 | [`ts/test/render.test.js`](ts/test/render.test.js) | The renderer — parse→render→parse fixed point over BOTH corpora, the refused constructs, the case-insensitive expansion, the ABNF bridge end to end. |
 | [`ts/test/doc-examples.test.js`](ts/test/doc-examples.test.js) | Runs every ` ```js ` fence in the repo's markdown that carries a `// =>` assertion. |
 | [`ts/test/version.test.js`](ts/test/version.test.js) | The exported `VERSION` against `ts/package.json`. |
-| [`ts/test/translate.test.js`](ts/test/translate.test.js) | The translation parts: the embedded copies are the files, the manifest's `translate` object, and the grammar spec a host reads. |
-| [`ts/test/translate-render.test.js`](ts/test/translate-render.test.js) | The render run through the `alchemy` command `TABNAS_ALCHEMY` names, skipped without it: compiled specs written back, and changed ones refused. |
-| [`alchemy/render.alc`](alchemy/render.alc) | The render: a grammar spec written back as GBNF (entry `gbnf-render`). See "Translation". |
-| [`ts/embed-translate.js`](ts/embed-translate.js) | Copies `tabnas.plugin.json` and the render into `ts/src/translate.ts`, `go/translate/` and `rs/translate/`, all three GENERATED; `npm run embed` runs it, and so does the build. |
+| [`ts/test/translate.test.js`](ts/test/translate.test.js) | The translation parts: the embedded copies are the files, the manifest's `translate` object, and the grammar spec a host reads on the grammar-spec route. |
+| [`ts/test/translate-render.test.js`](ts/test/translate-render.test.js) | The grammar-spec route's render run through the `dmog` command `TABNAS_ALCHEMY` names, skipped without it: compiled specs written back, and changed ones refused. |
+| [`ts/test/tree.test.js`](ts/test/tree.test.js) | The tree a host translates: [`test/spec/tree.tsv`](test/spec/tree.tsv), every corpus grammar a tree of the schema, and ten thousand of each repetition read at the depth two reach. |
+| [`ts/test/tree-render.test.js`](ts/test/tree-render.test.js) | The tree's render, run as `translate-render.test.js` runs the spec route's: every fixture and corpus grammar written back as its tree, another notation's elements, and the refusals. |
+| [`ts/src/tree.ts`](ts/src/tree.ts) | The tree a host translates: `make()`, the parser that reads GBNF as the schema grammar-rules with the meta-grammar's alternates and actions of its own (`gbnfTreeRules`), and `parseGbnfTree`. Its ports are [`go/tree.go`](go/tree.go) and [`rs/src/tree.rs`](rs/src/tree.rs). See "Translation". |
+| [`alchemy/transduce.alc`](alchemy/transduce.alc) | The part: the tree's events from the rule passes of `make()` (entry `gbnf-transduce`). |
+| [`alchemy/render.alc`](alchemy/render.alc) | The render: a grammar-rules tree written back as GBNF (entry `gbnf-render`). |
+| [`alchemy/render-spec.alc`](alchemy/render-spec.alc) | The grammar-spec route's render: a compiled grammar spec written back as GBNF (entry `gbnf-render-spec`). |
+| [`ts/embed-translate.js`](ts/embed-translate.js) | Copies `tabnas.plugin.json`, the part and both renders into `ts/src/translate.ts`, `go/translate/` and `rs/translate/`, all three GENERATED; `npm run embed` runs it, and so does the build. |
 | [`test/corpus/`](test/corpus/) | llama.cpp's own `grammars/*.gbnf`, verbatim and **committed**. See the README there for provenance. |
 | [`test/live/`](test/live/) | Schema-generated GBNF, extracted verbatim from llama.cpp's converter tests. See the README there. |
 | [`ts/doc/`](ts/doc/) | 4-quadrant Diátaxis docs plus [`known-gaps.md`](ts/doc/known-gaps.md). |
@@ -252,22 +257,109 @@ mechanism is
 
 ## Translation
 
-A host that translates between formats (aless, `alchemy translate`, the
-design in tabnas/transduce `docs/translation.md`) reads this format's
-parts from the `translate` object of
-[`tabnas.plugin.json`](tabnas.plugin.json): a GBNF document is read as a
-tree and written from one (`reads`, `writes`), an object (`root`), of the
-schema `grammar-spec` (`schema`), which ABNF and EBNF share, since the
-three compile through the one compiler, so a host can translate a grammar
-from one notation to another. There is no embed, so the target is
-schema-only: a host composes into the render only from a source of the
-same schema, or from a program that builds a grammar spec, and refuses
-any other source before reading it.
+A host that translates between formats (`dmog translate`, the design in
+tabnas/transduce `docs/translation.md`) reads this format's parts from
+the `translate` object of [`tabnas.plugin.json`](tabnas.plugin.json). A
+GBNF document is read as a tree and written from one (`reads`, `writes`),
+an object (`root`), of the schema `grammar-rules` (`schema`): the
+grammar's rules as the text writes them, uncompiled and in source order,
+which tabnas/bnf defines (`docs/grammar-rules.md` there) and ABNF and
+EBNF share, so a host can translate a grammar from one notation to
+another. This is step 23 of alchemy's streaming plan (section 13.1 of its
+`docs/streaming-plan.md`, from ruling 4 of 2026-11-08, admin ADR-33).
+There is no embed, so the target is schema-only: a host composes into
+the render only from a source of the same schema, or from a program that
+builds such a tree.
 
-There is no `lift` either. A lift is an alchemy program a composition runs
-over a source's events; reading a GBNF document means compiling it, which
-is the host's registry concern, as aless and alchemy-cli wire each
-format's reader. The tree a host reads is the pure-data GrammarSpec of
+```text
+{ "type": "grammar", "start": "root", "rules": [
+  { "type": "rule", "name": "root",
+    "alternatives": [ [ element, ... ], ... ] }, ... ] }
+```
+
+GBNF starts from the rule named `root` wherever the text defines it, so
+the grammar's `start`, after its `type` and before its rules, is "root"
+in every GBNF tree, the schema's member for a notation whose start is
+not its first rule (tabnas/bnf 0.1.33).
+
+An element is an object whose first member names its type: `reference`
+(`name`), `literal` (`text`, the characters its escapes name, and
+`caseSensitive`, true), `class` (`negated`, and `members`, each `{from,
+to}`, code points: `[a-z_]` is two), `any` (`.`), `token` (`negated`,
+and `text`, what stands between the angle brackets: `<think>`,
+`!<[1000]>`) and `group` (`alternatives`). Its postfix operators are its
+last member, `repeat`, the innermost first: `x*?` repeats `x` from 0 up
+and that from 0 to 1. A second definition of a name is a rule entry of
+its own, where the text writes it; llama.cpp keeps the last, and a
+compiler does too, but the tree does not choose. Comments are not kept.
+
+- The tree is `parseGbnfTree` in TypeScript, `ParseGbnfTree` in Go and
+  `parse_gbnf_tree` in Rust ([`ts/src/tree.ts`](ts/src/tree.ts),
+  [`go/tree.go`](go/tree.go), [`rs/src/tree.rs`](rs/src/tree.rs)): the
+  value of the parser `make()` / `Make()` / `make()` builds, which reads
+  GBNF with the meta-grammar's lexer and every alternate as they are, and
+  actions of its own in place of the ones that build the compiler's IR.
+  [`test/spec/tree.tsv`](test/spec/tree.tsv) holds the three runtimes to
+  the same trees, member order included, and to the codes they refuse a
+  source with where the tree cannot hold it: `gbnf_escape` (an escape
+  GBNF does not have, one past U+10FFFF, or, in a string, half of a
+  surrogate pair standing alone, which names no character),
+  `gbnf_class_range`, `gbnf_empty_class`, `gbnf_reversed_repetition`,
+  `gbnf_count` (a count past 2^53 - 1) and `gbnf_unclosed`. A class's
+  member is a code point, so a surrogate is one, and the two escapes of a
+  pair are two members, as the IR reads them. The tree does not need a
+  rule named `root`, which the IR's parse requires: its `start` names
+  one, and a render refuses a tree whose start names a rule it does not
+  define.
+- The part, [`alchemy/transduce.alc`](alchemy/transduce.alc)
+  (`gbnf-transduce`, the manifest's `translate.transduce`), makes the
+  tree's events from the rule passes of `make()`, a rule at a time, so
+  `translate.whole` is gone: nothing waits for the document's end. A
+  token whose text needs reading (a string, a class, a tokenizer
+  terminal, a run of postfix operators) carries what it reads as its
+  value, which the action that reads it gives it, since a part reads a
+  token's value and never the work an action does with it.
+- The render, [`alchemy/render.alc`](alchemy/render.alc) (`gbnf-render`),
+  writes the tree as GBNF, a rule to a line, as each rule's events
+  arrive. Its contract is the round trip: a GBNF document's tree,
+  written, reads back as that tree. A GBNF document of rules none of
+  which is `root` is refused at its end with
+  TARGET_VALUE_UNREPRESENTABLE, naming the rule its start names, as every
+  render refuses a start the grammar does not define; one of no rules is
+  no text. A tree with no `start`, as ABNF's and EBNF's are, starts from
+  its first rule, so the render writes `root ::= <its first rule>` after
+  the others where it has no rule named `root`, and refuses one whose
+  rule named `root` is not its first, naming that first rule, since GBNF
+  would start from `root` instead. ABNF's and EBNF's renders, whose
+  notations start from their first rule, write a tree whose start is
+  another rule with that rule first, holding the text of the rules
+  before it until it has been written. A tree of another notation
+  is written as GBNF spells it (a case-insensitive literal as the classes
+  of its letters' two cases, a character as a string of one, a range as
+  a class, an RFC 5234 core rule the grammar references as a rule of its
+  own), and what GBNF cannot say is refused with
+  TARGET_VALUE_UNREPRESENTABLE, naming the rule: prose, an incremental
+  rule (`=/`), a name GBNF cannot spell, an empty class, a reference to
+  the engine's own NR, ST, TX or VL token the grammar does not define
+  (which ABNF's and EBNF's compilers read as that token), and the rest
+  the manifest's `loss` list names.
+
+Repetition is replacement here too: the rules of a grammar are a replace
+loop of `prod`, and the alternatives of a rule or a group and the
+elements of an alternative are close-phase pushes of one rule, which
+come back to it, so none of them adds rule depth however many there are.
+The tree tests in every runtime hold ten thousand of each to the depth
+two reach.
+
+### The grammar-spec route
+
+The compiled grammar spec stays the route of a host that installs a
+grammar, and of a host that still translates by it: the manifest's
+`translate.spec` names its schema (`grammar-spec`), its render
+([`alchemy/render-spec.alc`](alchemy/render-spec.alc), entry
+`gbnf-render-spec`) and its `loss` list, and the parts API hands the
+render over as `spec` beside the others. The tree a host reads on this
+route is the pure-data GrammarSpec of
 `compileSpec(gbnfConvert(src, { builtins: true }), { recognition: false,
 strict: true })`, `compileSpec` being `@tabnas/bnf`'s (`compile_spec`
 over `gbnf_convert` with `builtins` on in Rust; `bnf.ToJsonic` over
@@ -292,9 +384,10 @@ lexer tries two tokens a place expects); the render refuses such a spec
 when its `tokenOrder` holds two tokens or more, rather than write rules
 whose tokens rank otherwise.
 
-[`alchemy/render.alc`](alchemy/render.alc) is the render, an
-[alchemy](https://github.com/tabnas/alchemy) library whose entry point
-`gbnf-render` writes a grammar spec as one GBNF document. Its contract is
+[`alchemy/render-spec.alc`](alchemy/render-spec.alc) is that route's
+render, an [alchemy](https://github.com/tabnas/alchemy) library whose
+entry point `gbnf-render-spec` writes a grammar spec as one GBNF
+document. Its contract is
 the round trip: the text compiles back to the spec it was written from.
 `renderGbnf` (`render_gbnf` in Rust) writes GBNF from the IR a document
 parses to; the render writes it from the spec the IR compiles to, and
@@ -358,18 +451,25 @@ alternatives, or left substituted. The last 2 are a lone surrogate in a
 class (`[\uD800]`), which `renderGbnf` writes as U+FFFD and the render
 writes as the `\uD800` escape, which reads back.
 
-`npm run embed` in `ts/` (the build runs it) copies the manifest and the
-render into every runtime: `ts/src/translate.ts`, `go/translate/` and
-`rs/translate/`, served as `translate()` in TypeScript, `Translate()` in
-Go and `translate()`, `manifest_text()` and `render_text()` in Rust. The
-translation tests (`ts/test/translate.test.js`, `go/translate_test.go`,
-`rs/tests/translate_test.rs`) hold the copies to the files and the tree to
-what the compiler writes, so change the files at the root and run the
-embed. Running the render needs alchemy, which this repository does not
-depend on: `ts/test/translate-render.test.js` runs it through the
-`alchemy` command `TABNAS_ALCHEMY` names, over specs the compiler writes
-and specs changed to hold what the render must refuse, and skips without
-it; the round trip over the corpora is the hosts'.
+### The parts in every runtime
+
+`npm run embed` in `ts/` (the build runs it) copies the manifest, the
+part and both renders into every runtime: `ts/src/translate.ts`,
+`go/translate/` and `rs/translate/`, served as `translate()` in
+TypeScript, `Translate()` in Go and `translate()`, `manifest_text()`,
+`render_text()`, `transduce_text()` and `render_spec_text()` in Rust,
+the part as `transduce` and the spec route's render as `spec` beside
+`render`. The translation tests (`ts/test/translate.test.js`,
+`go/translate_test.go`, `rs/tests/translate_test.rs`) hold the copies to
+the files, so change the files at the root and run the embed. Running a
+part needs alchemy, which this repository does not depend on:
+`ts/test/tree-render.test.js` runs the tree's render and
+`ts/test/translate-render.test.js` the spec route's, through the `dmog`
+command `TABNAS_ALCHEMY` names, and each skips without it. That the
+part's events are the walk of the tree is held where alchemy runs: over
+every document of this repository's fixtures and corpora, in all three
+runtimes, it was, when the part was written (the pull request that added
+it has the counts).
 
 ## Design notes for the meta-grammar
 
@@ -759,23 +859,29 @@ They stay in the Makefile because removing them is a separate change.
 
 ## Error codes
 
-This package declares **no** error codes: there is no `error`/`hint`
-catalogue in any runtime, and no fixture pins an `ERROR:<code>` row —
-there is no `test/spec` directory; the shared data under `test/` is the
-two committed corpora. Diagnostics are `GbnfParseError` /
-`GbnfCompileError` / `GbnfRenderError` exceptions with prose messages.
+The compiler declares **no** error codes: there is no `error`/`hint`
+catalogue on the IR parser in any runtime, and its diagnostics are
+`GbnfParseError` / `GbnfCompileError` / `GbnfRenderError` exceptions
+with prose messages. What is pinned there is the verdict, not the code:
+the corpus suites grade reject samples as bare refusals, and the
+in-language suite (`ts/test/gbnf.test.js`) asserts message wording where
+it matters. Both are weaker contracts than `ERROR:<code>` rows, and they
+are the natural conversion target for the A3/A4 error-code work.
 
-What is pinned today is the verdict, not the code: the corpus suites grade
-reject samples as bare refusals, and the in-language suite
-(`ts/test/gbnf.test.js`) asserts message wording where it matters. Both
-are weaker contracts than `ERROR:<code>` rows, and they are the natural
-conversion target for the A3/A4 error-code work if shared `test/spec`
-fixtures arrive.
+The tree a host translates does declare codes, the ones its parser
+refuses a source with where the tree cannot hold it: `gbnf_escape`,
+`gbnf_class_range`, `gbnf_empty_class`, `gbnf_reversed_repetition`,
+`gbnf_count` and `gbnf_unclosed`. Each is in the catalogue the tree
+parser's options carry (`TREE_OPTIONS` in `ts/src/tree.ts`, `treeOptions`
+in `go/tree.go`, `TREE_ERRORS` in `rs/src/tree.rs`), and each has an
+`ERROR:<code>` row in [`test/spec/tree.tsv`](test/spec/tree.tsv), which
+the three runtimes run. A refusal from the engine itself (`unexpected`)
+keeps the engine's code.
 
 The machine-readable list is [`tabnas.plugin.json`](tabnas.plugin.json)
-(`errorCodes`) — deliberately empty today, matching the catalogue-free
-state above. If this package ever declares a code, add it there in the
-same change: the code is the contract a fixture pins with `ERROR:<code>`.
+(`errorCodes`): the tree's codes, in the catalogue's order. If this
+package declares another code, add it there in the same change: the code
+is the contract a fixture pins with `ERROR:<code>`.
 
 ## Untrusted input
 

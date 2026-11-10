@@ -13,6 +13,8 @@ type TranslationParts = Readonly<{
   lift?: TranslationPart
   embed?: TranslationPart
   render?: TranslationPart
+  transduce?: TranslationPart
+  spec?: TranslationPart
 }>
 
 const TRANSLATION: TranslationParts = Object.freeze({
@@ -21,13 +23,14 @@ const TRANSLATION: TranslationParts = Object.freeze({
   "name": "@tabnas/gbnf",
   "go": "github.com/tabnas/gbnf/go",
   "rust": "tabnas-gbnf",
-  "description": "llama.cpp GBNF grammar compiler for the tabnas engine. A host reads a GBNF document by compiling it: the tree it translates is the pure-data GrammarSpec the compiler emits (schema grammar-spec), which the render writes back as GBNF.",
+  "description": "llama.cpp GBNF grammar compiler for the tabnas engine. A host translating a GBNF document reads it as its rules in source order (schema grammar-rules, which ABNF and EBNF share), streamed by its transducer part from the rule passes of the parser make() builds, and the render writes them back as GBNF; the compiled GrammarSpec (schema grammar-spec) stays the route of a host that installs a grammar, with its own render under translate.spec.",
   "base": "@tabnas/bnf",
   "engine": "@tabnas/parser",
   "extensions": [
     ".gbnf"
   ],
   "languageId": "gbnf",
+  "specDir": "test/spec",
   "clib": {
     "dir": "go/clib",
     "library": "libtabnasgbnf",
@@ -39,7 +42,14 @@ const TRANSLATION: TranslationParts = Object.freeze({
       "internal"
     ]
   },
-  "errorCodes": [],
+  "errorCodes": [
+    "gbnf_escape",
+    "gbnf_class_range",
+    "gbnf_empty_class",
+    "gbnf_reversed_repetition",
+    "gbnf_count",
+    "gbnf_unclosed"
+  ],
   "docs": "https://tabnas.dev/docs/packages",
   "repository": "https://github.com/tabnas/gbnf",
   "versionSource": "ts/package.json",
@@ -47,31 +57,1026 @@ const TRANSLATION: TranslationParts = Object.freeze({
     "reads": "tree",
     "writes": "tree",
     "root": "object",
-    "schema": "grammar-spec",
+    "schema": "grammar-rules",
+    "transduce": "alchemy/transduce.alc",
     "render": "alchemy/render.alc",
     "loss": [
-      "The grammar is written anew from its compiled spec: comments, blank lines and layout are not kept, and each rule is written on one line.",
-      "A rule is written as the compiler rewrote it: a reference that led an alternative is written back where the alternatives the compiler put in its place still stand together, each followed by one same tail, and is otherwise written as those alternatives; a left recursion is written as the repetition it became, and alternatives the compiler left-factored with their shared prefix written in each of them again.",
-      "Where the compiler reordered a rule's alternatives to tell them apart (a longer lookahead ahead of a shorter one that begins with the same character, a keyword ahead of a character class that can take it), the alternatives that push a helper of the compiler's are put back in the order its numbers record, and the others are written in the compiled order: the rule compiles back the same, and the spec compiled back can differ in the order of the alternates other rules build through it, in the numbers of the compiler's helpers and in the order of its tokens.",
-      "A left recursion that ran through another rule (a ::= b, b ::= a \\"+\\" | n) is written as the compiler rewrote it, with the leading reference that closed the cycle left in place, and compiles back to another spec, since the compiler now substitutes that reference.",
-      "GBNF starts from the rule named root: a spec whose start rule has another name is written with root ::= and that name first, as render_gbnf writes it, and compiles back with that rule added; a spec that has a rule named root that is not its start rule is refused.",
-      "Terminals are written in GBNF's forms, spelled as render_gbnf spells them: a literal as a string, a class as a bracket expression and [\\\\s\\\\S] as a dot, and a rule the compiler made a token of (plus ::= \\"+\\", referenced as plus) as that rule, after the others.",
-      "A rule the compiler made a token of, whose name is one the compiler could give its literal by itself (B ::= \\"b\\", or any name of capitals, digits and underscores where the literal holds a character past ASCII), cannot be told from that literal and is written as the literal: it compiles back with the token later in the token table, or under the name the literal gives it.",
-      "Repetitions are written in GBNF's forms, x*, x+, x?, x{m}, x{m,} and x{m,n}, with a postfix on a postfix (x*?) where a repetition is itself repeated.",
-      "An empty alternative is written as nothing between its bars; in a rule whose alternatives the compiler emits as its open alternates, where it puts the empty one last wherever it stood, it is written first, as llama.cpp's grammars write it.",
-      "A spec compiled from another notation compiles back under GBNF's own settings: the group tag on every alternate and GBNF's exact lexing are GBNF's, a case-insensitive literal (ABNF's default) is written as the two-case classes and strings that match exactly what it matches, an RFC 5234 core rule is written as a rule of its own, and an empty literal, which GBNF reads as nothing, as an empty string.",
-      "The tree builders every compiled grammar carries (@node$, @capture$, @bubble$ and @fold$, with their k settings) and its marks are not written, since the compiler makes them again from the rules: a spec whose builders or marks are others compiles back with the compiler's own, and recognises what it recognised.",
-      "A spec the render cannot write as GBNF is refused with TARGET_VALUE_UNREPRESENTABLE, naming what it met: an action (a value annotation's builders, a user action, the probe dispatcher of an optional prefix), a condition or a counter other than a repetition's, an error generator or an alternate modifier, a function reference where a rule or a count is due, a set of tokens at one place, a removal, a clear or the form that edits a rule already installed, a token no GBNF terminal matches (the engine's own TX, NR, ST and VL, a class whose flags change what it matches (no u on a class that is negated, reaches past U+FFFF or holds every code point, or u on one that holds a surrogate), a pattern that is neither one class nor an escaped literal, a case-insensitive literal holding a character past ASCII that may have cases: one of the Basic Multilingual Plane, or of a script past it that has them), a token set whose tokens are not the class its name gives, a rule with no alternate to open with, a sequence's step with more alternates than a step, a rule the compiler lifted to a token whose name another rule holds, a start that is not the start wrapper every grammar text compiles to (one open alternate that matches nothing and pushes a rule, closed by the end of the source alone), a rule name GBNF cannot spell, the empty name among them, a repetition bounded past what the compiler numbers, a repetition of no copies, whose item the spec does not keep, or a spec that gives its match tokens' order as a list of its own (Go's tokenOrder), whose rules' order, which ranks the tokens, is lost."
+      "Comments, blank lines and layout are not kept: each rule is written on one line, its alternatives between bars and its elements between spaces.",
+      "A string is written with the escapes GBNF and JSON share, \\\\x08 and \\\\x0C for the two GBNF does not have, and any other character as itself; a class's member is written as itself where it is printable ASCII and not one of the class's own marks, and as an escape otherwise: each reads back as the same element.",
+      "Repetitions are written in GBNF's forms, x*, x+, x?, x{m}, x{m,} and x{m,n}, after the element, the innermost first, so a repetition of a repetition is a postfix on a postfix (x*?).",
+      "GBNF starts from the rule named root, which its own tree names as its start: a grammar with no start, as one of ABNF or EBNF, starts from its first rule, and is written with root ::= and that rule's name after the others where it has no rule named root, which reads back with that rule added; one whose rule named root is not its first is refused with TARGET_VALUE_UNREPRESENTABLE, naming its first rule, since GBNF would start from root instead; and a start naming a rule the grammar does not define, as a GBNF document of rules none of which is root, is refused at its end, naming the rule; a grammar of no rules is written as no text.",
+      "A grammar of another notation is written as GBNF spells it: a case-insensitive literal (ABNF's quoted string) as its characters, each letter the class of its two cases and each other character a string of one, in a group where it has more than one, which matches what it matches; a character as a string of one, or, a surrogate, which no string holds, as a class of one; a range as a class of one range; and an RFC 5234 core rule the grammar references and does not define (ALPHA, DIGIT and the rest) as a rule of its own after the others, as ABNF's compiler adds it. Each reads back as what GBNF wrote, which the render writes again as the same text.",
+      "A grammar the render cannot write as GBNF is refused with TARGET_VALUE_UNREPRESENTABLE, naming the rule and what it met: prose, an incremental rule (=/), a name GBNF cannot spell (the empty name among them), an empty class, a case-insensitive literal holding a character past ASCII beside a letter of ASCII, or one that may have cases (one of the Basic Multilingual Plane, or of a script past it that has them), and a reference to the engine's own NR, ST, TX or VL token that the grammar does not define, which ABNF's and EBNF's compilers read as that token and GBNF has no form for, refused at the grammar's end, naming the rule that holds it. A tree that is not the schema's is refused the same way, naming what was met."
     ],
-    "whole": "A rule may be named before it is defined, and the spec is what the compiler makes of the whole grammar, so a document's tree is complete only at its end: it is read whole before anything is written."
+    "spec": {
+      "reads": "tree",
+      "writes": "tree",
+      "root": "object",
+      "schema": "grammar-spec",
+      "render": "alchemy/render-spec.alc",
+      "loss": [
+        "The grammar is written anew from its compiled spec: comments, blank lines and layout are not kept, and each rule is written on one line.",
+        "A rule is written as the compiler rewrote it: a reference that led an alternative is written back where the alternatives the compiler put in its place still stand together, each followed by one same tail, and is otherwise written as those alternatives; a left recursion is written as the repetition it became, and alternatives the compiler left-factored with their shared prefix written in each of them again.",
+        "Where the compiler reordered a rule's alternatives to tell them apart (a longer lookahead ahead of a shorter one that begins with the same character, a keyword ahead of a character class that can take it), the alternatives that push a helper of the compiler's are put back in the order its numbers record, and the others are written in the compiled order: the rule compiles back the same, and the spec compiled back can differ in the order of the alternates other rules build through it, in the numbers of the compiler's helpers and in the order of its tokens.",
+        "A left recursion that ran through another rule (a ::= b, b ::= a \\"+\\" | n) is written as the compiler rewrote it, with the leading reference that closed the cycle left in place, and compiles back to another spec, since the compiler now substitutes that reference.",
+        "GBNF starts from the rule named root: a spec whose start rule has another name is written with root ::= and that name first, as render_gbnf writes it, and compiles back with that rule added; a spec that has a rule named root that is not its start rule is refused.",
+        "Terminals are written in GBNF's forms, spelled as render_gbnf spells them: a literal as a string, a class as a bracket expression and [\\\\s\\\\S] as a dot, and a rule the compiler made a token of (plus ::= \\"+\\", referenced as plus) as that rule, after the others.",
+        "A rule the compiler made a token of, whose name is one the compiler could give its literal by itself (B ::= \\"b\\", or any name of capitals, digits and underscores where the literal holds a character past ASCII), cannot be told from that literal and is written as the literal: it compiles back with the token later in the token table, or under the name the literal gives it.",
+        "Repetitions are written in GBNF's forms, x*, x+, x?, x{m}, x{m,} and x{m,n}, with a postfix on a postfix (x*?) where a repetition is itself repeated.",
+        "An empty alternative is written as nothing between its bars; in a rule whose alternatives the compiler emits as its open alternates, where it puts the empty one last wherever it stood, it is written first, as llama.cpp's grammars write it.",
+        "A spec compiled from another notation compiles back under GBNF's own settings: the group tag on every alternate and GBNF's exact lexing are GBNF's, a case-insensitive literal (ABNF's default) is written as the two-case classes and strings that match exactly what it matches, an RFC 5234 core rule is written as a rule of its own, and an empty literal, which GBNF reads as nothing, as an empty string.",
+        "The tree builders every compiled grammar carries (@node$, @capture$, @bubble$ and @fold$, with their k settings) and its marks are not written, since the compiler makes them again from the rules: a spec whose builders or marks are others compiles back with the compiler's own, and recognises what it recognised.",
+        "A spec the render cannot write as GBNF is refused with TARGET_VALUE_UNREPRESENTABLE, naming what it met: an action (a value annotation's builders, a user action, the probe dispatcher of an optional prefix), a condition or a counter other than a repetition's, an error generator or an alternate modifier, a function reference where a rule or a count is due, a set of tokens at one place, a removal, a clear or the form that edits a rule already installed, a token no GBNF terminal matches (the engine's own TX, NR, ST and VL, a class whose flags change what it matches (no u on a class that is negated, reaches past U+FFFF or holds every code point, or u on one that holds a surrogate), a pattern that is neither one class nor an escaped literal, a case-insensitive literal holding a character past ASCII that may have cases: one of the Basic Multilingual Plane, or of a script past it that has them), a token set whose tokens are not the class its name gives, a rule with no alternate to open with, a sequence's step with more alternates than a step, a rule the compiler lifted to a token whose name another rule holds, a start that is not the start wrapper every grammar text compiles to (one open alternate that matches nothing and pushes a rule, closed by the end of the source alone), a rule name GBNF cannot spell, the empty name among them, a repetition bounded past what the compiler numbers, a repetition of no copies, whose item the spec does not keep, or a spec that gives its match tokens' order as a list of its own (Go's tokenOrder), whose rules' order, which ranks the tokens, is lost."
+      ]
+    }
   }
 }
 `,
-  render: Object.freeze({ entry: "gbnf-render", source: `; GBNF's render: a grammar-spec tree, the GrammarSpec the tabnas BNF
+  render: Object.freeze({ entry: "gbnf-render", source: `; GBNF's render: a grammar-rules tree written as llama.cpp GBNF, a rule at
+; a time as its events arrive. This is a library of definitions, each
+; named \`gbnf-render-...\` but its entry point, \`gbnf-render\`, which a host
+; links with its own program (alchemy's \`compile_sources\`); nothing else
+; here is the host's to call.
+;
+; The tree is the schema \`grammar-rules\` (tabnas/bnf's
+; docs/grammar-rules.md, and section 13.1 of alchemy's
+; docs/streaming-plan.md): \`{"type": "grammar", "rules": [...]}\`, each rule
+; \`{"type": "rule", "name", ["incremental": true], "alternatives"}\`, an
+; alternative a list of elements, and an element an object whose \`type\`
+; comes first and whose other members follow in the schema's order, its
+; repetitions, \`repeat\`, last. GBNF's reader builds it, and so do ABNF's
+; and EBNF's, so a grammar read in another notation is written here too.
+;
+; The text: a rule on a line of its own, \`name ::= ...\`, its alternatives
+; between \` | \`, the elements of an alternative between spaces, a group
+; in \`( ... )\`; a repetition as the postfix operators GBNF has (\`*\`, \`+\`,
+; \`?\`, \`{m}\`, \`{m,}\`, \`{m,n}\`), after the element, the innermost first. A
+; literal is a string, its characters escaped where GBNF needs it; a
+; character a string of one; a range or a class a bracket expression, its
+; members escaped where a class needs it; any character a dot; a
+; tokenizer terminal \`<...>\` or \`!<...>\`. GBNF starts from the rule named
+; \`root\`, which its own tree names as its \`start\`: a grammar with no
+; \`start\`, as ABNF's and EBNF's trees, starts from its first rule, and is
+; written with \`root ::=\` and that rule's name after the others where it
+; has no rule named root, and refused where its rule named root is not its
+; first; a \`start\` naming a rule the grammar never defines is refused at
+; its end. An RFC 5234 core rule (\`ALPHA\`, \`DIGIT\` and the rest) the
+; grammar references and does not define is written as a rule of its
+; own, after the others, as ABNF's compiler adds it. The empty grammar is
+; no text at all.
+;
+; The contract is the round trip: a GBNF document's tree, written, reads
+; back as that tree, and one with no rule named \`root\` is refused. A
+; grammar of another notation reads back as a tree this render writes as
+; the same text, since what GBNF spells otherwise is written as GBNF
+; spells it: a case-insensitive literal (ABNF's quoted string) as the
+; two-case classes and strings that match what it matches. What GBNF
+; cannot say is refused with TARGET_VALUE_UNREPRESENTABLE, naming the
+; rule and what it met: prose, an incremental rule (\`=/\`), a name GBNF
+; cannot spell (a rule name is letters, digits, \`_\` and \`-\`), an empty
+; class, and a case-insensitive literal holding a character past ASCII
+; beside a letter of ASCII, or one that may have cases (one of the Basic
+; Multilingual Plane, or of a script past it that has them); and, at the
+; grammar's end, a reference to the engine's own NR, ST, TX or VL token
+; that the grammar does not define, which ABNF's and EBNF's compilers read
+; as that token, naming the rule that holds it. A tree that is not the
+; schema's (a root that is no grammar, a node's type first nowhere, a
+; member a node does not have, out of its place, missing or of the wrong
+; kind) is refused the same way, naming what was met.
+;
+; The state is a stack of the containers open, innermost last:
+; [:grammar key at info] for the root, \`info\` the first rule's name,
+; whether a rule is named root, the core rules referenced and defined,
+; and the engine's tokens referenced, each with the rule that holds it;
+; [:rules] for its rules; [:rule key at name incremental] for a rule;
+; [:alts owner count texts] for a rule's (owner :rule) or a group's
+; (owner :group) alternatives; [:alt owner text] for an alternative;
+; [:element key at pairs] for an element, its members so far as [name
+; value] pairs; [:members items] and [:member key from to] for a class's
+; members; [:repeats items] and [:repeat key min max] for an element's
+; repetitions; and :done once the grammar has closed. A rule's
+; alternatives and their elements are written as each ends, so the state
+; holds one element's text at a time, and nothing grows with the
+; grammar's length but \`info\`, which holds at most the sixteen core
+; rules' names twice and a pair for each reference to one of the
+; engine's four tokens.
+
+; ---- refusals and small helpers
+
+def gbnf-render-refuse [what]
+  fail :unrepresentable (string-join "" ["the grammar cannot be written as GBNF: " what])
+
+def gbnf-render-shape [what]
+  fail :unrepresentable (string-join "" ["the tree is not a grammar-rules tree: " what])
+
+def gbnf-render-not [x]
+  match x
+    case true false
+    case false true
+
+def gbnf-render-at-least [n m]
+  match (compare n m)
+    case :less false
+    case _ true
+
+def gbnf-render-has-letter [text]
+  gbnf-render-not (chars-within [[0 64] [91 96] [123 1114111]] text)
+
+; The value a pair of an element's members gives the name, or missing.
+def gbnf-render-pair [name pairs]
+  let [found (filter (fn [p] (equal (gbnf-render-at p 0) name)) pairs)]
+    match (count found)
+      case 0 missing
+      case _ (gbnf-render-at (gbnf-render-at found 0) 1)
+
+; ---- code points as hexadecimal digits
+
+; Each hexadecimal place's fifteen multiples, from the place of 16^5.
+def gbnf-render-places [[1048576 2097152 3145728 4194304 5242880 6291456 7340032 8388608 9437184 10485760 11534336 12582912 13631488 14680064 15728640] [65536 131072 196608 262144 327680 393216 458752 524288 589824 655360 720896 786432 851968 917504 983040] [4096 8192 12288 16384 20480 24576 28672 32768 36864 40960 45056 49152 53248 57344 61440] [256 512 768 1024 1280 1536 1792 2048 2304 2560 2816 3072 3328 3584 3840] [16 32 48 64 80 96 112 128 144 160 176 192 208 224 240] [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15]]
+
+; A number's digit at a place: how many of the place's multiples it
+; reaches.
+def gbnf-render-digit [n multiples]
+  count (filter (fn [m] (gbnf-render-at-least n m)) multiples)
+
+; The number less its digit's multiple of the place.
+def gbnf-render-less [n multiples d]
+  match d
+    case 0 n
+    case _ (sub n (gbnf-render-at multiples (sub d 1)))
+
+def gbnf-render-hex-walk [self places n acc]
+  match (count places)
+    case 0 acc
+    case _
+      let [ms (gbnf-render-at places 0)]
+        let [d (gbnf-render-digit n ms)]
+          self self (gbnf-render-rest places) (gbnf-render-less n ms d) (push (gbnf-render-at gbnf-render-hex-digits d) acc)
+
+; A code point's hexadecimal digits in capitals, without leading zeros
+; but two of them at least: \`0A\`, \`41\`, \`10FFFF\`.
+def gbnf-render-hex [n]
+  let [digits (gbnf-render-hex-walk gbnf-render-hex-walk gbnf-render-places n [])]
+    let [firsts (filter (fn [i] (gbnf-render-not (equal (gbnf-render-at digits i) "0"))) [0 1 2 3])]
+      let [k (match (count firsts) (case 0 4) (case _ (gbnf-render-at firsts 0)))]
+        string-join "" (map (fn [i] (gbnf-render-at digits i)) (filter (fn [i] (gbnf-render-at-least i k)) (indices digits)))
+
+; A number checked to be a code point.
+def gbnf-render-point [what n]
+  match (kind n)
+    case :number
+      match [(gbnf-render-at-least n 0) (gbnf-render-at-least 1114111 n)]
+        case [true true] n
+        case _ (gbnf-render-shape (string-join "" [what " is not a code point"]))
+    case _ (gbnf-render-shape (string-join "" [what " is not a number"]))
+
+; ---- GBNF's terminals
+
+; A reference: the name of a rule, as GBNF spells one.
+def gbnf-render-reference [rname name]
+  match name
+    case "" (gbnf-render-refuse (string-join "" ["the rule " (quoted rname) " references the empty name, which GBNF cannot spell"]))
+    case _
+      match (chars-within [[45 45] [48 57] [65 90] [95 95] [97 122]] name)
+        case true name
+        case false (gbnf-render-refuse (string-join "" ["the rule " (quoted rname) " references " (quoted name) ", a name GBNF cannot spell"]))
+
+; A rule name GBNF can spell: letters, digits, \`_\` and \`-\`.
+def gbnf-render-name [name]
+  match name
+    case "" (gbnf-render-refuse "a rule has the empty name, which GBNF cannot spell")
+    case _
+      match (chars-within [[45 45] [48 57] [65 90] [95 95] [97 122]] name)
+        case true name
+        case false (gbnf-render-refuse (string-join "" ["the rule " (quoted name) " has a name GBNF cannot spell"]))
+
+; A string: JSON's double-quoted form, which GBNF reads but for \`\\b\` and
+; \`\\f\`, written as GBNF's \`\\x08\` and \`\\x0C\` (each a pair of characters
+; after an escaped backslash is not one of them).
+def gbnf-render-string [text]
+  string-join "\\\\\\\\" (map (fn [p] (string-join "\\\\x0C" (split "\\\\f" (string-join "\\\\x08" (split "\\\\b" p))))) (split "\\\\\\\\" (quoted text)))
+
+; A code point as one of GBNF's escapes: \`\\xXX\`, \`\\uXXXX\` or \`\\UXXXXXXXX\`.
+def gbnf-render-pad [h n]
+  string-join "" [(repeat (sub n (length h)) "0") h]
+
+def gbnf-render-escape [cp]
+  match (gbnf-render-at-least 255 cp)
+    case true (string-join "" ["\\\\x" (gbnf-render-pad (gbnf-render-hex cp) 2)])
+    case false
+      match (gbnf-render-at-least 65535 cp)
+        case true (string-join "" ["\\\\u" (gbnf-render-pad (gbnf-render-hex cp) 4)])
+        case false (string-join "" ["\\\\U" (gbnf-render-pad (gbnf-render-hex cp) 8)])
+
+; A character of ASCII, from its code point.
+def gbnf-render-ascii-char [cp]
+  gbnf-render-at (gbnf-render-at gbnf-render-ascii cp) 0
+
+; A character as a string of one, written as a literal of it is: the
+; character itself, unless it is a surrogate, which names no character a
+; string can hold, and is written as the class of that one code point.
+def gbnf-render-char [cp]
+  match (gbnf-render-at-least 127 cp)
+    case true (gbnf-render-string (gbnf-render-ascii-char cp))
+    case false
+      match [(gbnf-render-at-least cp 55296) (gbnf-render-at-least 57343 cp)]
+        case [true true] (string-join "" ["[" (gbnf-render-escape cp) "]"])
+        case _ (gbnf-render-string (gbnf-render-char-of cp))
+
+; The character a code point names: a JSON escape of it, or of the
+; surrogate pair that encodes it past U+FFFF, read back. Its high half is
+; U+D800 and the code point's bits above the tenth, past U+10000; its low
+; half U+DC00 and the ten below, found a bit at a time.
+def gbnf-render-char-of [cp]
+  match (gbnf-render-at-least 65535 cp)
+    case true (unquoted (string-join "" ["\\"\\\\u" (gbnf-render-pad (gbnf-render-hex cp) 4) "\\""]))
+    case false
+      let [v (sub cp 65536)]
+        match (gbnf-render-split-walk gbnf-render-split-walk v gbnf-render-kilos gbnf-render-halves 0 0)
+          case [q acc]
+            unquoted (string-join "" ["\\"\\\\u" (gbnf-render-hex (add 55296 q)) "\\\\u" (gbnf-render-hex (add 56320 (sub v acc))) "\\""])
+
+def gbnf-render-kilos [524288 262144 131072 65536 32768 16384 8192 4096 2048 1024]
+
+def gbnf-render-halves [512 256 128 64 32 16 8 4 2 1]
+
+def gbnf-render-split-walk [self v kilos halves acc q]
+  match (count kilos)
+    case 0 [q acc]
+    case _
+      let [k (gbnf-render-at kilos 0) h (gbnf-render-at halves 0)]
+        match (gbnf-render-at-least v (add acc k))
+          case true (self self v (gbnf-render-rest kilos) (gbnf-render-rest halves) (add acc k) (add q h))
+          case false (self self v (gbnf-render-rest kilos) (gbnf-render-rest halves) acc q)
+
+; A class's member character: printable ASCII as itself but for the
+; class's own marks, escaped as GBNF has them (\`\\]\`, \`\\[\`, \`\\\\\`) or as a
+; code point (\`-\` and \`^\`, which GBNF escapes no other way), and anything
+; else as a code point.
+def gbnf-render-class-char [cp]
+  match (gbnf-render-at-least 126 cp)
+    case false (gbnf-render-escape cp)
+    case true
+      match (gbnf-render-at-least cp 32)
+        case false (gbnf-render-escape cp)
+        case true
+          let [c (gbnf-render-ascii-char cp)]
+            match c
+              case "]" "\\\\]"
+              case "[" "\\\\["
+              case "\\\\" "\\\\\\\\"
+              case "-" "\\\\u002D"
+              case "^" "\\\\u005E"
+              case _ c
+
+def gbnf-render-span [from to]
+  match (equal from to)
+    case true (gbnf-render-class-char from)
+    case false (string-join "" [(gbnf-render-class-char from) "-" (gbnf-render-class-char to)])
+
+; The characters of ASCII, and the letters' two cases.
+def gbnf-render-ascii-chars
+  map (fn [i] (gbnf-render-ascii-char i)) (indices gbnf-render-ascii)
+
+def gbnf-render-cases [["a" "A"] ["b" "B"] ["c" "C"] ["d" "D"] ["e" "E"] ["f" "F"] ["g" "G"] ["h" "H"] ["i" "I"] ["j" "J"] ["k" "K"] ["l" "L"] ["m" "M"] ["n" "N"] ["o" "O"] ["p" "P"] ["q" "Q"] ["r" "R"] ["s" "S"] ["t" "T"] ["u" "U"] ["v" "V"] ["w" "W"] ["x" "X"] ["y" "Y"] ["z" "Z"]]
+
+; The characters of a text of ASCII, in order.
+def gbnf-render-chars [self text acc]
+  match text
+    case "" acc
+    case _
+      let [c (gbnf-render-at (filter (fn [p] (starts-with p text)) gbnf-render-ascii-chars) 0)]
+        self self (gbnf-render-at (first-split c text) 1) (push c acc)
+
+; A character of a case-insensitive literal: a letter as the class of its
+; two cases, and anything else as a string of one.
+def gbnf-render-fold-char [c]
+  let [pair (filter (fn [p] (match [(equal c (gbnf-render-at p 0)) (equal c (gbnf-render-at p 1))] (case [false false] false) (case _ true))) gbnf-render-cases)]
+    match (count pair)
+      case 0 (gbnf-render-string c)
+      case _ (string-join "" ["[" (gbnf-render-at (gbnf-render-at pair 0) 0) (gbnf-render-at (gbnf-render-at pair 0) 1) "]"])
+
+; The characters a case-insensitive literal matches as it would without
+; regard to case, since they have none: ASCII but its letters, and the
+; characters past U+FFFF but those of the scripts that have cases
+; (Deseret, Osage, Vithkuqi, Old Hungarian, Garay, Warang Citi,
+; Medefaidrin, Adlam). A character of the Basic Multilingual Plane past
+; ASCII may have cases.
+def gbnf-render-caseless [[0 127] [65536 66559] [66640 66735] [66816 66927] [67008 68735] [68864 68927] [69008 71839] [71936 93759] [93856 125183] [125280 1114111]]
+
+; A literal: a string where it matches exactly, or where nothing in it
+; has a case; and a case-insensitive one holding a letter of ASCII and
+; nothing past ASCII as its characters, each letter the class of its two
+; cases and anything else a string of one, in a group where it has more
+; than one. GBNF matches a string exactly, so a case-insensitive literal
+; holding a character past ASCII beside a letter, or one that may have
+; cases, is refused.
+def gbnf-render-literal [rname text cs]
+  match cs
+    case true (gbnf-render-string text)
+    case _
+      match [(gbnf-render-has-letter text) (chars-within [[0 127]] text) (chars-within gbnf-render-caseless text)]
+        case [false a true] (gbnf-render-string text)
+        case [true true b]
+          let [chars (gbnf-render-chars gbnf-render-chars text [])]
+            match (count chars)
+              case 1 (gbnf-render-fold-char (gbnf-render-at chars 0))
+              case _ (string-join "" ["(" (string-join "" (map (fn [c] (string-join "" [" " (gbnf-render-fold-char c)])) chars)) " )"])
+        case _ (gbnf-render-refuse (string-join "" ["the rule " (quoted rname) " holds the case-insensitive literal " (quoted text) ", which holds a character past ASCII that GBNF cannot match in every case"]))
+
+; ---- GBNF's elements
+
+; A repetition's postfix operator; max -1 where there is none.
+def gbnf-render-postfix [rep]
+  match rep
+    case [min max]
+      match (equal max -1)
+        case true
+          match min
+            case 0 "*"
+            case 1 "+"
+            case _ (string-join "" ["{" (gbnf-render-num min) ",}"])
+        case false
+          match [(equal min 0) (equal max 1)]
+            case [true true] "?"
+            case _
+              match (equal min max)
+                case true (string-join "" ["{" (gbnf-render-num min) "}"])
+                case false (string-join "" ["{" (gbnf-render-num min) "," (gbnf-render-num max) "}"])
+
+; An element's text, from its members: [name value] pairs, \`alternatives\`
+; the texts of a group's alternatives, \`members\` a class's [from to]
+; spans, \`repeat\` the element's [min max] repetitions, written after it.
+def gbnf-render-element [rname pairs]
+  let [type (gbnf-render-pair "type" pairs)]
+    let [need (filter (fn [m] (match (gbnf-render-pair m pairs) (case missing true) (case _ false))) (as-vector (gbnf-render-members type)))]
+      match (count need)
+        case 0
+          let [reps (match (gbnf-render-pair "repeat" pairs) (case missing []) (case r (as-vector r)))]
+            string-join "" (push-all (map gbnf-render-postfix reps) [(gbnf-render-atom rname type pairs)])
+        case _ (gbnf-render-shape (string-join "" ["a " type " with no " (gbnf-render-at need 0)]))
+
+; An element's text before its repetitions.
+def gbnf-render-atom [rname type pairs]
+  match type
+    case "reference" (gbnf-render-reference rname (gbnf-render-pair "name" pairs))
+    case "literal" (gbnf-render-literal rname (gbnf-render-pair "text" pairs) (gbnf-render-pair "caseSensitive" pairs))
+    case "char" (gbnf-render-char (gbnf-render-pair "value" pairs))
+    case "range"
+      match (gbnf-render-at-least (gbnf-render-pair "to" pairs) (gbnf-render-pair "from" pairs))
+        case true (string-join "" ["[" (gbnf-render-span (gbnf-render-pair "from" pairs) (gbnf-render-pair "to" pairs)) "]"])
+        case false (gbnf-render-shape "a range whose to is below its from")
+    case "any" "."
+    case "token"
+      match (gbnf-render-pair "negated" pairs)
+        case true (string-join "" ["!<" (gbnf-render-pair "text" pairs) ">"])
+        case false (string-join "" ["<" (gbnf-render-pair "text" pairs) ">"])
+    case "prose" (gbnf-render-refuse (string-join "" ["the rule " (quoted rname) " holds the prose " (quoted (gbnf-render-pair "text" pairs)) ", which GBNF has no form for"]))
+    case "class"
+      let [members (as-vector (gbnf-render-pair "members" pairs))]
+        match (count members)
+          case 0 (gbnf-render-refuse (string-join "" ["the rule " (quoted rname) " holds an empty class, which GBNF has no form for"]))
+          case _
+            string-join "" ["[" (match (gbnf-render-pair "negated" pairs) (case true "^") (case false "")) (string-join "" (map (fn [m] (match m (case [from to] (gbnf-render-span from to)))) members)) "]"]
+    case "group" (string-join "" ["(" (string-join " |" (as-vector (gbnf-render-pair "alternatives" pairs))) " )"])
+
+; ---- the start rule and the core rules
+
+; RFC 5234's core rules, which ABNF's compiler adds where they are
+; referenced and not defined, and GBNF's text for each.
+def gbnf-render-core ["ALPHA" "BIT" "CHAR" "CR" "CRLF" "CTL" "DIGIT" "DQUOTE" "HEXDIG" "HTAB" "LF" "LWSP" "OCTET" "SP" "VCHAR" "WSP"]
+
+def gbnf-render-core-text [name]
+  match name
+    case "ALPHA" "ALPHA ::= [A-Za-z]"
+    case "BIT" "BIT ::= [01]"
+    case "CHAR" "CHAR ::= [\\\\x01-\\\\x7F]"
+    case "CR" "CR ::= \\"\\\\r\\""
+    case "CRLF" "CRLF ::= \\"\\\\r\\\\n\\""
+    case "CTL" "CTL ::= [\\\\x00-\\\\x1F\\\\x7F]"
+    case "DIGIT" "DIGIT ::= [0-9]"
+    case "DQUOTE" "DQUOTE ::= \\"\\\\\\"\\""
+    case "HEXDIG" "HEXDIG ::= [0-9A-Fa-f]"
+    case "HTAB" "HTAB ::= \\"\\\\t\\""
+    case "LF" "LF ::= \\"\\\\n\\""
+    case "LWSP" "LWSP ::= ( [ \\\\x09] | \\"\\\\r\\\\n\\" [ \\\\x09] )*"
+    case "OCTET" "OCTET ::= [\\\\x00-\\\\xFF]"
+    case "SP" "SP ::= \\" \\""
+    case "VCHAR" "VCHAR ::= [!-~]"
+    case "WSP" "WSP ::= [ \\\\x09]"
+
+def gbnf-render-among [s v]
+  gbnf-render-some (filter (fn [x] (equal x s)) v)
+
+; The engine's own tokens, which ABNF's and EBNF's compilers read a
+; reference to as where the grammar does not define it, and the token
+; each names. GBNF has no form for them.
+def gbnf-render-engine ["NR" "ST" "TX" "VL"]
+
+def gbnf-render-engine-token [name]
+  match name
+    case "NR" "number"
+    case "ST" "string"
+    case "TX" "text"
+    case "VL" "value"
+
+; GBNF starts from the rule named root whatever the rules' order, so it
+; holds no rule back; a grammar's \`start\` is the rule \`root ::=\` names,
+; where the grammar has no root.
+def gbnf-render-holds false
+
+def gbnf-render-start-noted [stack name]
+  match (top stack)
+    case [:grammar key at [fst hasroot refs defs]] [[:grammar key at [name hasroot refs defs]]]
+
+; A rule's head is written: its name noted in the root's \`info\`, the
+; first rule's the start where the grammar names none. A rule named root
+; that is not the start is refused, since GBNF would start from it.
+def gbnf-render-noted [stack name]
+  match (gbnf-render-at stack 0)
+    case [:grammar key at [fst hasroot refs defs]]
+      let [start (match fst (case "" name) (case f f))]
+        match [(equal name "root") (equal start "root")]
+          case [true false] (gbnf-render-refuse (string-join "" ["the grammar starts from the rule " (quoted start) ", and holds a rule named root after it, which GBNF would start from instead"]))
+          case _
+            let [info [start (match hasroot (case true true) (case false (equal name "root"))) refs (match [(gbnf-render-among name gbnf-render-core) (gbnf-render-among name gbnf-render-engine)] (case [false false] defs) (case _ (match (gbnf-render-among name defs) (case true defs) (case false (push name defs)))))]]
+              gbnf-render-cat [[:grammar key at info]] (gbnf-render-rest stack)
+
+; Whether a name's reference is noted in \`info\` already: a core rule's
+; name, or an engine token's with the rule that first named it.
+def gbnf-render-noted-already [name refs]
+  gbnf-render-some (filter (fn [r] (match r (case [n rule] (equal n name)) (case n (equal n name)))) refs)
+
+; An element has ended: a reference to a core rule noted in \`info\`, and
+; one to the engine's own token as the token and the rule that names it,
+; each the first time.
+def gbnf-render-referenced [stack pairs]
+  match (gbnf-render-pair "type" pairs)
+    case "reference"
+      let [name (gbnf-render-pair "name" pairs)]
+        let [noted (match [(gbnf-render-among name gbnf-render-core) (gbnf-render-among name gbnf-render-engine)] (case [true e] name) (case [false true] [name (gbnf-render-current-rule stack)]) (case _ ""))]
+          match noted
+            case "" stack
+            case _
+              match (gbnf-render-at stack 0)
+                case [:grammar key at [fst hasroot refs defs]]
+                  match (gbnf-render-noted-already name refs)
+                    case true stack
+                    case false (gbnf-render-cat [[:grammar key at [fst hasroot (push noted refs) defs]]] (gbnf-render-rest stack))
+    case _ stack
+
+; The grammar has ended: \`root ::=\` its start rule, where no rule is
+; named root (a start named root that never arrived is refused by the
+; start's own definitions), and the core rules it references and does not
+; define. A reference to the engine's own token, which the grammar does
+; not define, is refused, naming the rule that holds it.
+def gbnf-render-grammar-end [info]
+  match info
+    case [fst hasroot refs defs]
+      let [tokens (filter (fn [r] (match r (case [n rule] (gbnf-render-not (gbnf-render-among n defs))) (case _ false))) refs)]
+        match (count tokens)
+          case 0 (gbnf-render-grammar-tail fst hasroot refs defs)
+          case _
+            match (gbnf-render-at tokens 0)
+              case [n rule] (gbnf-render-refuse (string-join "" ["the rule " (quoted rule) " references " n ", the engine's own " (gbnf-render-engine-token n) " token, which the grammar does not define and GBNF has no form for"]))
+
+; The text a grammar ends with: \`root ::=\` its start rule and the core
+; rules it references and does not define.
+def gbnf-render-grammar-tail [fst hasroot refs defs]
+  let [alias (match [hasroot fst] (case [true f] "") (case [false ""] "") (case [false "root"] "") (case [false f] (string-join "" ["root ::= " f "\\n"])))]
+    let [cores (filter (fn [c] (match [(gbnf-render-among c refs) (gbnf-render-among c defs)] (case [true false] true) (case _ false))) gbnf-render-core)]
+      string-join "" (push-all (map (fn [c] (string-join "" [(gbnf-render-core-text c) "\\n"])) cores) [alias])
+
+
+; ---- elements
+
+; The members each type of element has, in the schema's order.
+def gbnf-render-members [type]
+  match type
+    case "reference" ["name"]
+    case "literal" ["text" "caseSensitive"]
+    case "char" ["value"]
+    case "range" ["from" "to"]
+    case "class" ["negated" "members"]
+    case "any" []
+    case "token" ["negated" "text"]
+    case "prose" ["text"]
+    case "group" ["alternatives"]
+    case _ missing
+
+; A member's place in its element, 1 for the first after \`type\`; the
+; repetitions come last.
+def gbnf-render-place [type name]
+  match name
+    case "repeat" 9
+    case _
+      let [list (as-vector (gbnf-render-members type))]
+        let [at (filter (fn [i] (equal (gbnf-render-at list i) name)) (indices list))]
+          match (count at)
+            case 0 missing
+            case _ (inc (gbnf-render-at at 0))
+
+; The value a scalar member must hold.
+def gbnf-render-scalar-kind [name]
+  match name
+    case "name" :string
+    case "text" :string
+    case "caseSensitive" :boolean
+    case "negated" :boolean
+    case "value" :number
+    case "from" :number
+    case "to" :number
+    case _ missing
+
+
+; ---- the events
+
+; The stack with its innermost container replaced.
+def gbnf-render-put [stack frame]
+  push frame (pop stack)
+
+; The rule an element is in: the third container from the root.
+def gbnf-render-rule-name [stack]
+  match (gbnf-render-at stack 2)
+    case [:rule key at name incremental] name
+
+; An element has ended: its text, written where a rule's alternative
+; holds it, or held where a group's does.
+def gbnf-render-element-end [stack frame]
+  match frame
+    case [:element key at pairs]
+      let [text (gbnf-render-element (gbnf-render-rule-name stack) pairs) rest (gbnf-render-referenced (pop stack) pairs)]
+        match (top rest)
+          case [:alt :rule t] (transition rest [(string-join "" [" " text])])
+          case [:alt :group t] (transition (gbnf-render-put rest [:alt :group (string-join "" [t " " text])]) [])
+
+def gbnf-render-object-start [stack]
+  match (count stack)
+    case 0 (transition [[:grammar "" 0 ["" false [] []]]] [])
+    case _
+      match (top stack)
+        case [:rules] (transition (push [:rule "" 0 "" false] stack) [])
+        case [:alt owner text] (transition (push [:element "" 0 []] stack) [])
+        case [:members items] (transition (push [:member "" -1 -1] stack) [])
+        case [:repeats items] (transition (push [:repeat "" -1 -1] stack) [])
+        case _ (gbnf-render-shape "an object where none is")
+
+def gbnf-render-object-end [stack]
+  match (top stack)
+    case [:grammar key at info]
+      match at
+        case 2 (transition [:done] [(gbnf-render-grammar-end info)])
+        case _ (gbnf-render-shape "a grammar with no rules")
+    case [:rule key at name incremental]
+      match at
+        case 4 (transition (pop stack) ["\\n"])
+        case _ (gbnf-render-shape (string-join "" ["the rule " (quoted name) " has no alternatives"]))
+    case [:element key at pairs] (gbnf-render-element-end stack (top stack))
+    case [:member key from to]
+      match [(gbnf-render-at-least from 0) (gbnf-render-at-least to 0)]
+        case [true true]
+          match (gbnf-render-at-least to from)
+            case true
+              let [rest (pop stack)]
+                match (top rest)
+                  case [:members items] (transition (gbnf-render-put rest [:members (push [from to] items)]) [])
+            case false (gbnf-render-shape "a class's member whose to is below its from")
+        case _ (gbnf-render-shape "a class's member with no from or no to")
+    case [:repeat key min max]
+      match (gbnf-render-at-least min 0)
+        case true
+          match (match (equal max -1) (case true true) (case false (gbnf-render-at-least max min)))
+            case true
+              let [rest (pop stack)]
+                match (top rest)
+                  case [:repeats items] (transition (gbnf-render-put rest [:repeats (push [min max] items)]) [])
+            case false (gbnf-render-shape "a repetition whose max is below its min")
+        case false (gbnf-render-shape "a repetition with no min")
+    case _ (gbnf-render-shape "an object's end where none is open")
+
+; An element's member that is a list begins: a group's alternatives, a
+; class's members or the repetitions.
+def gbnf-render-element-array [stack frame]
+  match frame
+    case [:element key at pairs]
+      let [type (gbnf-render-pair "type" pairs)]
+        match [key (gbnf-render-place type key)]
+          case [k missing] (gbnf-render-shape (string-join "" ["a " type " has no member " key]))
+          case [k place]
+            match (gbnf-render-at-least at place)
+              case true (gbnf-render-shape (string-join "" ["a " type "'s " key " comes after what it precedes, or twice"]))
+              case false
+                let [here (gbnf-render-put stack [:element "" place pairs])]
+                  match key
+                    case "alternatives" (transition (push [:alts :group 0 []] here) [])
+                    case "members" (transition (push [:members []] here) [])
+                    case "repeat" (transition (push [:repeats []] here) [])
+                    case _ (gbnf-render-shape (string-join "" ["a " type "'s " key " is not a list"]))
+
+def gbnf-render-array-start [stack]
+  match (top stack)
+    case [:grammar "rules" 1 info] (transition (push [:rules] (gbnf-render-put stack [:grammar "" 2 info])) [])
+    case [:rule "alternatives" at name incremental]
+      match at
+        case 2 (transition (push [:alts :rule 0 []] (gbnf-render-put (gbnf-render-noted stack name) [:rule "" 4 name incremental])) [(string-join "" [(gbnf-render-name name) " ::="])])
+        case 3 (gbnf-render-refuse (string-join "" ["the rule " (quoted name) " adds alternatives to an earlier rule (=/), which GBNF has no form for"]))
+        case _ (gbnf-render-shape "a rule's alternatives come before its name, or twice")
+    case [:alts owner n texts]
+      match [owner n]
+        case [:rule 0] (transition (push [:alt :rule ""] (gbnf-render-put stack [:alts owner 1 texts])) [])
+        case [:rule k] (transition (push [:alt :rule ""] (gbnf-render-put stack [:alts owner (inc k) texts])) [" |"])
+        case [:group k] (transition (push [:alt :group ""] (gbnf-render-put stack [:alts owner (inc k) texts])) [])
+    case [:element key at pairs] (gbnf-render-element-array stack (top stack))
+    case _ (gbnf-render-shape "a list where none is")
+
+def gbnf-render-array-end [stack]
+  match (top stack)
+    case [:rules] (transition (pop stack) [])
+    case [:alts owner n texts]
+      match n
+        case 0 (gbnf-render-shape "a list of alternatives that is empty")
+        case _
+          let [rest (pop stack)]
+            match owner
+              case :rule (transition rest [])
+              case :group
+                match (top rest)
+                  case [:element key at pairs] (transition (gbnf-render-put rest [:element key at (push ["alternatives" texts] pairs)]) [])
+    case [:alt owner text]
+      let [rest (pop stack)]
+        match owner
+          case :rule (transition rest [])
+          case :group
+            match (top rest)
+              case [:alts o n texts] (transition (gbnf-render-put rest [:alts o n (push text texts)]) [])
+    case [:members items]
+      let [rest (pop stack)]
+        match (top rest)
+          case [:element key at pairs] (transition (gbnf-render-put rest [:element key at (push ["members" items] pairs)]) [])
+    case [:repeats items]
+      match (count items)
+        case 0 (gbnf-render-shape "a list of repetitions that is empty")
+        case _
+          let [rest (pop stack)]
+            match (top rest)
+              case [:element key at pairs] (transition (gbnf-render-put rest [:element key at (push ["repeat" items] pairs)]) [])
+    case _ (gbnf-render-shape "a list's end where none is open")
+
+; A key names the member whose value follows.
+def gbnf-render-key [stack name]
+  match (top stack)
+    case [:grammar key at info] (transition (gbnf-render-put stack [:grammar name at info]) [])
+    case [:rule key at n i] (transition (gbnf-render-put stack [:rule name at n i]) [])
+    case [:element key at pairs] (transition (gbnf-render-put stack [:element name at pairs]) [])
+    case [:member key from to] (transition (gbnf-render-put stack [:member name from to]) [])
+    case [:repeat key min max] (transition (gbnf-render-put stack [:repeat name min max]) [])
+    case _ (gbnf-render-shape "a key outside an object")
+
+; A scalar member of an element: its type first, then each member in the
+; schema's order, of the kind the schema gives it.
+def gbnf-render-element-scalar [stack frame value]
+  match frame
+    case [:element "type" 0 []]
+      match (gbnf-render-members value)
+        case missing (gbnf-render-shape (string-join "" ["an element of the type " (quoted (scalar-text csv-options value)) ", which no element has"]))
+        case list (transition (gbnf-render-put stack [:element "" 0 [["type" value]]]) [])
+    case [:element key 0 []] (gbnf-render-shape "an element whose first member is not its type")
+    case [:element key at pairs]
+      let [type (gbnf-render-pair "type" pairs)]
+        match (gbnf-render-place type key)
+          case missing (gbnf-render-shape (string-join "" ["a " type " has no member " key]))
+          case place
+            match (gbnf-render-at-least at place)
+              case true (gbnf-render-shape (string-join "" ["a " type "'s " key " comes after what it precedes, or twice"]))
+              case false
+                match (equal (kind value) (gbnf-render-scalar-kind key))
+                  case false (gbnf-render-shape (string-join "" ["a " type "'s " key " is not of its kind"]))
+                  case true
+                    let [checked (match key (case "value" (gbnf-render-point "a char's value" value)) (case "from" (gbnf-render-point "a range's from" value)) (case "to" (gbnf-render-point "a range's to" value)) (case _ value))]
+                      transition (gbnf-render-put stack [:element "" place (push [key checked] pairs)]) []
+
+def gbnf-render-count [what n]
+  match (kind n)
+    case :number
+      match (gbnf-render-at-least n 0)
+        case true n
+        case false (gbnf-render-shape (string-join "" [what " is below 0"]))
+    case _ (gbnf-render-shape (string-join "" [what " is not a number"]))
+
+def gbnf-render-scalar [stack value]
+  match (top stack)
+    case [:grammar "type" 0 info]
+      match value
+        case "grammar" (transition (gbnf-render-put stack [:grammar "" 1 info]) [])
+        case _ (gbnf-render-shape "the root's type is not grammar")
+    case [:rule "type" 0 n i]
+      match value
+        case "rule" (transition (gbnf-render-put stack [:rule "" 1 n i]) [])
+        case _ (gbnf-render-shape "a rule's type is not rule")
+    case [:rule "name" 1 n i]
+      match (kind value)
+        case :string (transition (gbnf-render-put stack [:rule "" 2 value i]) [])
+        case _ (gbnf-render-shape "a rule's name is not text")
+    case [:rule "incremental" 2 n i]
+      match value
+        case true (transition (gbnf-render-put stack [:rule "" 3 n true]) [])
+        case _ (gbnf-render-shape "a rule's incremental is true where it is written")
+    case [:element key at pairs] (gbnf-render-element-scalar stack (top stack) value)
+    case [:member "from" from to] (transition (gbnf-render-put stack [:member "" (gbnf-render-point "a class member's from" value) to]) [])
+    case [:member "to" from to] (transition (gbnf-render-put stack [:member "" from (gbnf-render-point "a class member's to" value)]) [])
+    case [:repeat "min" -1 max] (transition (gbnf-render-put stack [:repeat "" (gbnf-render-count "a repetition's min" value) max]) [])
+    case [:repeat "max" min -1] (transition (gbnf-render-put stack [:repeat "" min (gbnf-render-count "a repetition's max" value)]) [])
+    case _ (gbnf-render-shape "a value where none is, or a member out of its place")
+
+def gbnf-render-step [stack event]
+  match (count stack)
+    case 0
+      match event
+        case object-start (gbnf-render-object-start stack)
+        case _ (gbnf-render-shape "the root is not an object")
+    case _
+      match (top stack)
+        case :done (fail :protocol-order "the events hold more after the grammar, which a tree's never do")
+        case _
+          match event
+            case object-start (gbnf-render-object-start stack)
+            case object-end (gbnf-render-object-end stack)
+            case array-start (gbnf-render-array-start stack)
+            case array-end (gbnf-render-array-end stack)
+            case (key name) (gbnf-render-key stack name)
+            case (scalar value) (gbnf-render-scalar stack value)
+
+def gbnf-render-finish [stack]
+  match stack
+    case [:done] []
+    case [] (fail :protocol-order "the events hold no value, where a tree's hold one")
+    case _ (fail :protocol-order "the events ended inside a container, which a tree's never do")
+
+; The render: the tree's events in, the ABNF text out, the start rule held
+; to its place.
+def gbnf-render [input]
+  join ""
+    scan-emit [[] [:none]] gbnf-render-start-step gbnf-render-start-finish (events input)
+
+
+; ---- the start rule
+;
+; A grammar's \`start\` names the rule it starts from, where its notation
+; names one whatever the rules' order (GBNF's root). It comes after the
+; grammar's type and before its rules, and these definitions read it, so
+; the events the render beneath them reads hold none. Where the notation
+; written starts from its first rule (gbnf-render-holds), the start rule
+; is written first: until it arrives the text of the rules before it is
+; held, and written after it; nothing is held when it comes first, or
+; where there is no start. A start naming a rule that never arrives, in a
+; grammar that has rules, is refused at the grammar's end, rather than
+; written as a grammar that starts from another rule; a grammar of no
+; rules starts nowhere, and is written as it is.
+;
+; The state is [stack start]: the render's own stack, and where the start
+; stands: [:none], no start; [:due], its key read and its name due;
+; [:wait name held any], not met yet, \`held\` the text held back and \`any\`
+; whether a rule has been; [:in name held], being written; [:met],
+; written.
+
+; The grammar's place among its members, 1 after its type and before its
+; rules, or -1 inside it.
+def gbnf-render-grammar-at [stack]
+  match (count stack)
+    case 1
+      match (top stack)
+        case [:grammar key at] at
+        case [:grammar key at info] at
+        case _ -1
+    case _ -1
+
+; The name of the rule being written, or "" between rules.
+def gbnf-render-current-rule [stack]
+  match (gbnf-render-at-least (count stack) 3)
+    case false ""
+    case true
+      match (gbnf-render-at stack 2)
+        case [:rule key at name incremental] name
+        case _ ""
+
+; The text one event makes, written or held as the start stands.
+def gbnf-render-start-out [stack start out]
+  match start
+    case [:wait name held any]
+      let [rule (gbnf-render-current-rule stack)]
+        match (equal rule name)
+          case true (transition [stack [:in name held]] out)
+          case false
+            let [seen (match rule (case "" any) (case _ true))]
+              match gbnf-render-holds
+                case true (transition [stack [:wait name (push-all out held) seen]] [])
+                case false (transition [stack [:wait name held seen]] out)
+    case [:in name held]
+      match (equal (gbnf-render-current-rule stack) name)
+        case true (transition [stack start] out)
+        case false (transition [stack [:met]] (push-all held out))
+    case _ (transition [stack start] out)
+
+def gbnf-render-start-step [state event]
+  match state
+    case [stack start]
+      match start
+        case [:due]
+          match event
+            case (scalar value)
+              match [(kind value) value]
+                case [:string ""] (gbnf-render-shape "a grammar's start is empty")
+                case [:string name] (transition [(gbnf-render-start-noted stack name) [:wait name [] false]] [])
+                case _ (gbnf-render-shape "a grammar's start is not text")
+            case _ (gbnf-render-shape "a grammar's start has no name")
+        case _
+          match [event (gbnf-render-grammar-at stack)]
+            case [(key "start") 1]
+              match start
+                case [:none] (transition [stack [:due]] [])
+                case _ (gbnf-render-shape "a grammar's start comes twice")
+            case _
+              match (gbnf-render-step stack event)
+                case (transition next out) (gbnf-render-start-out next start out)
+
+def gbnf-render-start-finish [state]
+  match state
+    case [stack start]
+      match start
+        case [:wait name held true] (gbnf-render-refuse (string-join "" ["the grammar starts from the rule " (quoted name) ", which it does not define"]))
+        case [:wait name held false] (gbnf-render-finish stack)
+        case [:due] (gbnf-render-shape "a grammar's start has no name")
+        case _ (gbnf-render-finish stack)
+
+; ---- small helpers on texts and vectors
+
+def gbnf-render-hex-digits ["0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F"]
+
+def gbnf-render-flat [vv]
+  map
+    fn [t]
+      let [p (split "." t)]
+        get-path (as-path [(number (gbnf-render-at p 0)) (number (gbnf-render-at p 1))]) vv
+    filter gbnf-render-full
+      split ","
+        string-join ","
+          map
+            fn [j]
+              string-join "," (map (fn [i] (string-join "." [(gbnf-render-num j) (gbnf-render-num i)])) (indices (gbnf-render-at vv j)))
+            indices vv
+
+def gbnf-render-rest [v]
+  map (fn [i] (gbnf-render-at v i)) (filter (fn [i] (match i (case 0 false) (case _ true))) (indices v))
+
+def gbnf-render-starts [p s]
+  match s
+    case "" false
+    case _ (gbnf-render-empty (gbnf-render-at (split p s) 0))
+
+def gbnf-render-after [p s]
+  string-join p (gbnf-render-rest (split p s))
+
+def gbnf-render-cat [a b]
+  gbnf-render-flat [a b]
+
+def gbnf-render-empty [s]
+  match s
+    case "" true
+    case _ false
+
+def gbnf-render-full [s]
+  match s
+    case "" false
+    case _ true
+
+def gbnf-render-num [n]
+  scalar-text csv-options n
+
+def gbnf-render-some [v]
+  match (count v)
+    case 0 false
+    case _ true
+
+def gbnf-render-ascii [["\\u0000" "00"] ["\\u0001" "01"] ["\\u0002" "02"] ["\\u0003" "03"] ["\\u0004" "04"] ["\\u0005" "05"] ["\\u0006" "06"] ["\\u0007" "07"] ["\\b" "08"] ["\\t" "09"] ["\\n" "0A"] ["\\u000b" "0B"] ["\\f" "0C"] ["\\r" "0D"] ["\\u000e" "0E"] ["\\u000f" "0F"] ["\\u0010" "10"] ["\\u0011" "11"] ["\\u0012" "12"] ["\\u0013" "13"] ["\\u0014" "14"] ["\\u0015" "15"] ["\\u0016" "16"] ["\\u0017" "17"] ["\\u0018" "18"] ["\\u0019" "19"] ["\\u001a" "1A"] ["\\u001b" "1B"] ["\\u001c" "1C"] ["\\u001d" "1D"] ["\\u001e" "1E"] ["\\u001f" "1F"] [" " "20"] ["!" "21"] ["\\"" "22"] ["#" "23"] ["$" "24"] ["%" "25"] ["&" "26"] ["'" "27"] ["(" "28"] [")" "29"] ["*" "2A"] ["+" "2B"] ["," "2C"] ["-" "2D"] ["." "2E"] ["/" "2F"] ["0" "30"] ["1" "31"] ["2" "32"] ["3" "33"] ["4" "34"] ["5" "35"] ["6" "36"] ["7" "37"] ["8" "38"] ["9" "39"] [":" "3A"] [";" "3B"] ["<" "3C"] ["=" "3D"] [">" "3E"] ["?" "3F"] ["@" "40"] ["A" "41"] ["B" "42"] ["C" "43"] ["D" "44"] ["E" "45"] ["F" "46"] ["G" "47"] ["H" "48"] ["I" "49"] ["J" "4A"] ["K" "4B"] ["L" "4C"] ["M" "4D"] ["N" "4E"] ["O" "4F"] ["P" "50"] ["Q" "51"] ["R" "52"] ["S" "53"] ["T" "54"] ["U" "55"] ["V" "56"] ["W" "57"] ["X" "58"] ["Y" "59"] ["Z" "5A"] ["[" "5B"] ["\\\\" "5C"] ["]" "5D"] ["^" "5E"] ["_" "5F"] ["\`" "60"] ["a" "61"] ["b" "62"] ["c" "63"] ["d" "64"] ["e" "65"] ["f" "66"] ["g" "67"] ["h" "68"] ["i" "69"] ["j" "6A"] ["k" "6B"] ["l" "6C"] ["m" "6D"] ["n" "6E"] ["o" "6F"] ["p" "70"] ["q" "71"] ["r" "72"] ["s" "73"] ["t" "74"] ["u" "75"] ["v" "76"] ["w" "77"] ["x" "78"] ["y" "79"] ["z" "7A"] ["{" "7B"] ["|" "7C"] ["}" "7D"] ["~" "7E"] ["\\u007f" "7F"]]
+
+def gbnf-render-at [v i]
+  get-path (as-path [i]) v
+` }),
+  transduce: Object.freeze({ entry: "gbnf-transduce", source: `; GBNF's transducer part: the tree's JSON events from the rule passes of
+; the GBNF meta-grammar, for a host that reads parser events (dmog's
+; \`translate\` and \`run --grammar gbnf\`). Every event is the one the walk
+; of the tree \`parseGbnfTree\` builds gives: the schema \`grammar-rules\`
+; (tabnas/bnf's docs/grammar-rules.md, and section 13.1 of alchemy's
+; docs/streaming-plan.md), a grammar's rules as the text writes them, in
+; source order, each an object whose \`type\` comes first and whose other
+; members follow in the order the schema lists them. GBNF starts from the
+; rule named root wherever the text defines it, so the grammar's \`start\`,
+; "root", comes before any rule. It is hand-written over the passes of
+; \`make()\`, the parser whose value that tree is.
+;
+; The passes. \`gbnf\` holds the grammar and \`prod\` a rule, a production
+; replacing the one before it; \`prod\` reads its name and its \`::=\`, and
+; \`alts\` its alternatives, each a \`seq\` of elements. An element is an
+; \`elem\`, the \`atom\` it pushes, whose open reads what the element is (a
+; string, a class, \`.\`, a tokenizer terminal, a rule name, or the \`(\` of a
+; group, whose alternatives are an \`alts\` of their own, and whose close
+; reads the \`)\`), and the elem's close, which reads the run of postfix
+; operators that follows it. A token whose text needs reading carries
+; what it reads as its value, which the meta-grammar's action gives it: a
+; string its text, a class its \`negated\` and \`members\`, a tokenizer
+; terminal its \`negated\` and \`text\`, and a postfix run its repetitions,
+; the innermost first. A rule whose close pushes another (\`alts\` on \`|\`,
+; \`seq\` on its next element) is still open, so a close ends its rule only
+; where its alternate pushes nothing.
+;
+; An element's \`repeat\` is its last member and its operators follow it,
+; so nothing waits: the state is whether any pass came (a source that
+; makes none, the empty file, is the grammar of no rules at finish).
+
+; A repetition's events.
+def gbnf-transduce-repetition [rep]
+  match (get :max rep)
+    case missing [object-start (key "min") (scalar (get :min rep)) object-end]
+    case max [object-start (key "min") (scalar (get :min rep)) (key "max") (scalar max) object-end]
+
+; A class's member's events.
+def gbnf-transduce-member [m]
+  vector object-start (key "from") (scalar (get :from m)) (key "to") (scalar (get :to m)) object-end
+
+; What an atom's open writes: an element up to its last member, or a
+; group up to the start of its alternatives.
+def gbnf-transduce-atom [rule]
+  let [token (transduce-token 0 rule)]
+    let [val (get :val token)]
+      match (get :name token)
+        case "#GS" [object-start (key "type") (scalar "literal") (key "text") (scalar val) (key "caseSensitive") (scalar true)]
+        case "#CC" (push-all (push array-end (flatten (map gbnf-transduce-member (as-vector (get :members val))))) [object-start (key "type") (scalar "class") (key "negated") (scalar (get :negated val)) (key "members") array-start])
+        case "#DOT" [object-start (key "type") (scalar "any")]
+        case "#TOK" [object-start (key "type") (scalar "token") (key "negated") (scalar (get :negated val)) (key "text") (scalar (get :text val))]
+        case "#NM" [object-start (key "type") (scalar "reference") (key "name") (scalar (get :src token))]
+        case "#LP" [object-start (key "type") (scalar "group") (key "alternatives") array-start]
+        case _ (fail :protocol-order "an atom opens on a string, a class, a dot, a tokenizer terminal, a name or (")
+
+; An element's close: its repetitions, where a postfix run follows it,
+; then the end of its object.
+def gbnf-transduce-element-end [rule]
+  match (count (get :tokens rule))
+    case 0 [object-end]
+    case _
+      let [reps (as-vector (get :val (transduce-token 0 rule)))]
+        push-all [array-end object-end] (push-all (flatten (map gbnf-transduce-repetition reps)) [(key "repeat") array-start])
+
+; The rule a pass's alternate pushes, or "".
+def gbnf-transduce-pushes [rule]
+  match (get :alt rule)
+    case missing ""
+    case alt (get :p alt)
+
+def gbnf-transduce-open [rule]
+  match (get :name rule)
+    case "gbnf" [object-start (key "type") (scalar "grammar") (key "start") (scalar "root") (key "rules") array-start]
+    case "prod" [object-start (key "type") (scalar "rule") (key "name") (scalar (get :src (transduce-token 0 rule))) (key "alternatives") array-start]
+    case "alts" []
+    case "seq" [array-start]
+    case "elem" []
+    case "atom" (gbnf-transduce-atom rule)
+    case _ (fail :protocol-order "a rule pass of a rule the GBNF meta-grammar does not have")
+
+def gbnf-transduce-close [rule]
+  match (get :name rule)
+    case "gbnf" [array-end object-end]
+    case "prod" [object-end]
+    case "alts"
+      match (gbnf-transduce-pushes rule)
+        case "seq" []
+        case _ [array-end]
+    case "seq"
+      match (gbnf-transduce-pushes rule)
+        case "elem" []
+        case _ [array-end]
+    case "elem" (gbnf-transduce-element-end rule)
+    case "atom" []
+    case _ (fail :protocol-order "a rule pass of a rule the GBNF meta-grammar does not have")
+
+def gbnf-transduce-step [started pass]
+  match pass
+    case (open rule) (transition true (gbnf-transduce-open rule))
+    case (close rule) (transition true (gbnf-transduce-close rule))
+
+; A source that made no pass is the grammar of no rules.
+def gbnf-transduce-finish [started]
+  match started
+    case false [object-start (key "type") (scalar "grammar") (key "start") (scalar "root") (key "rules") array-start array-end object-end]
+    case true []
+
+def gbnf-transduce [input]
+  as-events (scan-emit false gbnf-transduce-step gbnf-transduce-finish (parser-events input))
+` }),
+  spec: Object.freeze({ entry: "gbnf-render-spec", source: `; GBNF's render: a grammar-spec tree, the GrammarSpec the tabnas BNF
 ; compiler (tabnas-bnf) emits for a grammar, written back as llama.cpp
 ; GBNF. This is a library of definitions, each named \`gbnf-...\`, which a
 ; host links with its own program (alchemy's \`compile_sources\`); its entry
-; point is \`gbnf-render\`, and nothing else here is the host's to call.
+; point is \`gbnf-render-spec\`, and nothing else here is the host's to call.
 ;
 ; A host reads a GBNF document by compiling it: the grammar-spec tree is
 ; the pure-data GrammarSpec that tabnas-bnf's \`compileSpec(gbnfConvert(src,
@@ -1921,7 +2926,7 @@ def gbnf-file [spec]
                       string-join "\\n" (gbnf-flat [(gbnf-root-lines names start) (map (fn [n] (gbnf-production cx cands lifted n)) names) (map (fn [t] (gbnf-lifted-production cx t)) lifted)])
                       "\\n"
 
-def gbnf-render [input]
+def gbnf-render-spec [input]
   concat-map gbnf-file (select root input)
 ` })
 })

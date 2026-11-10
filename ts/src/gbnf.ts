@@ -81,6 +81,9 @@ export {
 
 export type { GbnfConvertOptions, GbnfRenderOptions }
 
+export { make, parseGbnfTree, gbnfTreeRules } from './tree'
+export type { GbnfTree, GbnfTreeRule, GbnfTreeElement, GbnfTreeRepeat } from './tree'
+
 export { translate } from './translate'
 export type { TranslationPart, TranslationParts } from './translate'
 

@@ -47,6 +47,16 @@ the reject table.)
 Astral character classes additionally have no serialisable form the Go
 runtime can load (`ts/doc/known-gaps.md` §5).
 
+**The tree for translation.** `ParseGbnfTree` reads a document as the
+schema grammar-rules, the rules as the text writes them in source order,
+an `*tabnas.OrderedMap` whose members keep the order the schema gives
+them, its `start` the rule GBNF starts from, `root`. `Make` builds the parser that yields that tree, and `Translate()`
+carries the transducer part, `Transduce`, which streams the tree from
+the rule passes of that parser, beside the render that writes it back as
+GBNF and `Spec`, the render of the grammar-spec route.
+`../test/spec/tree.tsv` holds this port to the same trees as the others,
+through `tree_test.go`.
+
 The TypeScript implementation is canonical. The dialect, and the
 scannerless limitations recorded in
 [`ts/doc/known-gaps.md`](../ts/doc/known-gaps.md), are the contract
