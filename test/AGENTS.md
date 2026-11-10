@@ -115,3 +115,24 @@ engine option plus four compiler behaviours.
 If a new sample fails for a fourth reason, that is a new finding and
 `known-gaps.md` needs a new section — not a fourth line in
 `EXPECTED_FAILURES` with a hand-wave.
+
+## `spec/tree.tsv`, the tree a host translates
+
+[`spec/tree.tsv`](spec/tree.tsv) is the one shared fixture: each row a
+GBNF document and its tree, the schema grammar-rules a host translates
+(`AGENTS.md`, "Translation"), as the tree's JSON text, member order
+included, compared as text; or `ERROR:<code>`, the code the tree parser
+refuses it with. The columns are `grammar` and `expected`. A `grammar`
+cell's `\n`, `\r`, `\t` and `\\` are the characters they name, as
+tabnas-support reads a cell, so a GBNF escape keeps its backslash
+doubled (`"\\n"` is the string of a newline); any other backslash is
+itself. A line starting with `#` is a comment, so a document that starts
+with a GBNF comment starts with a space.
+
+tabnas-support is no dependency here, so each runtime reads the file
+with a loader of its own beside the tree's other tests:
+`ts/test/tree.test.js`, `go/tree_test.go` and `rs/tests/tree_test.rs`,
+which also hold every tree to tabnas/bnf's check of the schema. A row's
+expected tree is what the tree should be, checked against the schema
+and the notation, never copied from what one runtime answers: a row that
+pins a mistake pins it in all three.

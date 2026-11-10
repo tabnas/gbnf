@@ -348,11 +348,20 @@ func repeat(inner *bnf.Element, min, max int, src string) (*bnf.Element, error) 
 // instance: a *Tabnas is not safe for concurrent Parse, and a package
 // singleton would make ParseGbnf unsafe to call from two goroutines.
 func newGbnfParser() *tabnas.Tabnas {
+	tn := tabnas.Empty(gbnfOptions())
+	defineGbnfRules(tn, nil)
+	return tn
+}
+
+// gbnfOptions is the engine options the GBNF meta-grammar reads its
+// source with. The IR parser above and the tree parser (tree.go) share
+// them.
+func gbnfOptions() tabnas.Options {
 	off := false
 	on := true
 	str := func(s string) *string { return &s }
 
-	tn := tabnas.Empty(tabnas.Options{
+	return tabnas.Options{
 		Rule: &tabnas.RuleOptions{Start: "gbnf"},
 		Fixed: &tabnas.FixedOptions{
 			Token: map[string]*string{
@@ -402,10 +411,7 @@ func newGbnfParser() *tabnas.Tabnas {
 				"multi": nil,
 			},
 		},
-	})
-
-	defineGbnfRules(tn)
-	return tn
+	}
 }
 
 // alt is one alternate, written as a struct literal so the rule table
@@ -422,6 +428,19 @@ type alt struct {
 	Cond tabnas.AltCond   // guard
 }
 
+// gbnfActs is a set of actions for the meta-grammar's table other than
+// the IR's own: the tree parser's (tree.go). A state's action is keyed by
+// its rule and state ("prod.bc"), and an alternate's by its rule, its
+// state and its s pattern ("atom.open #GS", and "elem.close " for one
+// with none). Every alternate that carries an action in the table takes
+// the one keyed to it, a state the one keyed to it or none, and every
+// key is bound, which defineGbnfRules records in bound.
+type gbnfActs struct {
+	state map[string]tabnas.StateAction
+	alt   map[string]tabnas.AltAction
+	bound map[string]bool
+}
+
 // defineGbnfRules installs the meta-grammar:
 //
 //	gbnf = prod*
@@ -431,21 +450,55 @@ type alt struct {
 //	                             `ws ::= | " " | "\n"`)
 //	elem = atom POST?
 //	atom = NM | GS | CC | DOT | TOK | '(' alts ')'
-func defineGbnfRules(tn *tabnas.Tabnas) {
+//
+// with the IR's actions, or, where acts is not nil, with the actions it
+// keys in their place: the alternates, their s, p, r, b, g and conditions
+// are the same either way, so the rule passes are too.
+func defineGbnfRules(tn *tabnas.Tabnas, acts *gbnfActs) {
 	// Token names resolve against THIS instance's tin allocation.
-	spec := func(a alt) *tabnas.AltSpec {
-		out := &tabnas.AltSpec{P: a.P, R: a.R, B: a.B, G: a.G, A: a.Act, C: a.Cond}
+	spec := func(rule, state string, a alt) *tabnas.AltSpec {
+		act := a.Act
+		if acts != nil && act != nil {
+			key := rule + "." + state + " " + a.S
+			act = acts.alt[key]
+			if act == nil {
+				panic("gbnf: no action for " + key)
+			}
+			acts.bound[key] = true
+		}
+		out := &tabnas.AltSpec{P: a.P, R: a.R, B: a.B, G: a.G, A: act, C: a.Cond}
 		for _, n := range strings.Fields(a.S) {
 			out.S = append(out.S, []tabnas.Tin{tn.Token(n)})
 		}
 		return out
 	}
-	alts := func(as ...alt) []*tabnas.AltSpec {
+	alts := func(rule, state string, as ...alt) []*tabnas.AltSpec {
 		out := make([]*tabnas.AltSpec, len(as))
 		for i, a := range as {
-			out[i] = spec(a)
+			out[i] = spec(rule, state, a)
 		}
 		return out
+	}
+	// A state's action: the IR's own, or the one acts keys to it, if any.
+	stateAct := func(key string, ir tabnas.StateAction) tabnas.StateAction {
+		if acts == nil {
+			return ir
+		}
+		if f := acts.state[key]; f != nil {
+			acts.bound[key] = true
+			return f
+		}
+		return nil
+	}
+	addBO := func(rs *tabnas.RuleSpec, rule string, ir tabnas.StateAction) {
+		if f := stateAct(rule+".bo", ir); f != nil {
+			rs.AddBO(f)
+		}
+	}
+	addBC := func(rs *tabnas.RuleSpec, rule string, ir tabnas.StateAction) {
+		if f := stateAct(rule+".bc", ir); f != nil {
+			rs.AddBC(f)
+		}
 	}
 	rule := func(name string, define func(rs *tabnas.RuleSpec)) {
 		tn.Rule(name, func(rs *tabnas.RuleSpec, p *tabnas.Parser) { define(rs) })
@@ -453,22 +506,22 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 
 	// Top level: accumulates productions into r.Node.
 	rule("gbnf", func(rs *tabnas.RuleSpec) {
-		rs.AddBO(func(r *tabnas.Rule, ctx *tabnas.Context) {
+		addBO(rs, "gbnf", func(r *tabnas.Rule, ctx *tabnas.Context) {
 			r.Node = &[]*bnf.Production{}
 		})
-		rs.AddOpen(alts(
+		rs.AddOpen(alts("gbnf", "open",
 			alt{S: "#ZZ", G: "empty"},
 			alt{P: "prod"},
 		)...)
-		rs.AddClose(alts(alt{S: "#ZZ"})...)
+		rs.AddClose(alts("gbnf", "close", alt{S: "#ZZ"})...)
 	})
 
 	// One production per invocation; tail-recurses for the next. Inherits
 	// its parent's node (the productions slice) and appends in bc once its
 	// `alts` child has returned.
 	rule("prod", func(rs *tabnas.RuleSpec) {
-		rs.AddBO(func(r *tabnas.Rule, ctx *tabnas.Context) { ensureU(r) })
-		rs.AddOpen(alts(alt{
+		addBO(rs, "prod", func(r *tabnas.Rule, ctx *tabnas.Context) { ensureU(r) })
+		rs.AddOpen(alts("prod", "open", alt{
 			S: "#NM #DEF",
 			Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
 				r.U["name"] = r.O[0].Src
@@ -480,11 +533,11 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 		// so a fresh `prod` invocation sees them. `::=` can only ever
 		// follow a rule name at the start of a production, so this
 		// two-token lookahead is exact.
-		rs.AddClose(alts(
+		rs.AddClose(alts("prod", "close",
 			alt{S: "#NM #DEF", B: 2, R: "prod"},
 			alt{B: 1},
 		)...)
-		rs.AddBC(func(r *tabnas.Rule, ctx *tabnas.Context) {
+		addBC(rs, "prod", func(r *tabnas.Rule, ctx *tabnas.Context) {
 			as, ok := childAlts(r)
 			if !ok {
 				return
@@ -503,15 +556,15 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 	// A list of alternative sequences separated by `|`. Owns its own
 	// slice and appends each seq result.
 	rule("alts", func(rs *tabnas.RuleSpec) {
-		rs.AddBO(func(r *tabnas.Rule, ctx *tabnas.Context) {
+		addBO(rs, "alts", func(r *tabnas.Rule, ctx *tabnas.Context) {
 			r.Node = &[]bnf.Sequence{}
 		})
-		rs.AddOpen(alts(alt{P: "seq"})...)
-		rs.AddClose(alts(
+		rs.AddOpen(alts("alts", "open", alt{P: "seq"})...)
+		rs.AddClose(alts("alts", "close",
 			alt{S: "#ALT", P: "seq"},
 			alt{B: 1},
 		)...)
-		rs.AddBC(func(r *tabnas.Rule, ctx *tabnas.Context) {
+		addBC(rs, "alts", func(r *tabnas.Rule, ctx *tabnas.Context) {
 			seq, ok := childSeq(r)
 			if !ok {
 				return
@@ -528,7 +581,7 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 	// optional whitespace as `ws ::= | " " | "\n" [ \t]{0,20}`, whose
 	// first alternative matches nothing.
 	rule("seq", func(rs *tabnas.RuleSpec) {
-		rs.AddBO(func(r *tabnas.Rule, ctx *tabnas.Context) {
+		addBO(rs, "seq", func(r *tabnas.Rule, ctx *tabnas.Context) {
 			r.Node = &bnf.Sequence{}
 		})
 		bounds := []alt{
@@ -538,8 +591,8 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 			{S: "#ZZ", B: 1, G: "end"},
 			{P: "elem"},
 		}
-		rs.AddOpen(alts(bounds...)...)
-		rs.AddClose(alts(bounds...)...)
+		rs.AddOpen(alts("seq", "open", bounds...)...)
+		rs.AddClose(alts("seq", "close", bounds...)...)
 	})
 
 	// One element: an atom followed by an optional postfix run. The run
@@ -550,8 +603,8 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 			seq := r.Node.(*bnf.Sequence)
 			*seq = append(*seq, el)
 		}
-		rs.AddOpen(alts(alt{P: "atom"})...)
-		rs.AddClose(alts(
+		rs.AddOpen(alts("elem", "open", alt{P: "atom"})...)
+		rs.AddClose(alts("elem", "close",
 			// `r.C`, not `r.O`: tokens matched by a close-state alternate
 			// land in the rule's close-token array.
 			alt{S: "#POST", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
@@ -579,12 +632,12 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 	// literal (`""`) contributes no element at all, and `elem` skips
 	// pushing when the atom left its node unset.
 	rule("atom", func(rs *tabnas.RuleSpec) {
-		rs.AddBO(func(r *tabnas.Rule, ctx *tabnas.Context) {
+		addBO(rs, "atom", func(r *tabnas.Rule, ctx *tabnas.Context) {
 			r.Node = nil
 			ensureU(r)
 			r.U["grouped"] = false
 		})
-		rs.AddOpen(alts(
+		rs.AddOpen(alts("atom", "open",
 			alt{S: "#GS", Act: func(r *tabnas.Rule, ctx *tabnas.Context) {
 				lit, err := decodeString(r.O[0].Src)
 				if err != nil {
@@ -644,7 +697,7 @@ func defineGbnfRules(tn *tabnas.Tabnas) {
 				r.U["open"] = r.O[0]
 			}},
 		)...)
-		rs.AddClose(alts(
+		rs.AddClose(alts("atom", "close",
 			// Only a group consumes the `)`. Without the condition this
 			// alternate would eat the closing paren of the ENCLOSING group
 			// after a simple atom — `( "a" )` would lose its `)`.

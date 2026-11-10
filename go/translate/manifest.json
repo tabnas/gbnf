@@ -3,13 +3,14 @@
   "name": "@tabnas/gbnf",
   "go": "github.com/tabnas/gbnf/go",
   "rust": "tabnas-gbnf",
-  "description": "llama.cpp GBNF grammar compiler for the tabnas engine. A host reads a GBNF document by compiling it: the tree it translates is the pure-data GrammarSpec the compiler emits (schema grammar-spec), which the render writes back as GBNF.",
+  "description": "llama.cpp GBNF grammar compiler for the tabnas engine. A host translating a GBNF document reads it as its rules in source order (schema grammar-rules, which ABNF and EBNF share), streamed by its transducer part from the rule passes of the parser make() builds, and the render writes them back as GBNF; the compiled GrammarSpec (schema grammar-spec) stays the route of a host that installs a grammar, with its own render under translate.spec.",
   "base": "@tabnas/bnf",
   "engine": "@tabnas/parser",
   "extensions": [
     ".gbnf"
   ],
   "languageId": "gbnf",
+  "specDir": "test/spec",
   "clib": {
     "dir": "go/clib",
     "library": "libtabnasgbnf",
@@ -21,7 +22,14 @@
       "internal"
     ]
   },
-  "errorCodes": [],
+  "errorCodes": [
+    "gbnf_escape",
+    "gbnf_class_range",
+    "gbnf_empty_class",
+    "gbnf_reversed_repetition",
+    "gbnf_count",
+    "gbnf_unclosed"
+  ],
   "docs": "https://tabnas.dev/docs/packages",
   "repository": "https://github.com/tabnas/gbnf",
   "versionSource": "ts/package.json",
@@ -29,22 +37,37 @@
     "reads": "tree",
     "writes": "tree",
     "root": "object",
-    "schema": "grammar-spec",
+    "schema": "grammar-rules",
+    "transduce": "alchemy/transduce.alc",
     "render": "alchemy/render.alc",
     "loss": [
-      "The grammar is written anew from its compiled spec: comments, blank lines and layout are not kept, and each rule is written on one line.",
-      "A rule is written as the compiler rewrote it: a reference that led an alternative is written back where the alternatives the compiler put in its place still stand together, each followed by one same tail, and is otherwise written as those alternatives; a left recursion is written as the repetition it became, and alternatives the compiler left-factored with their shared prefix written in each of them again.",
-      "Where the compiler reordered a rule's alternatives to tell them apart (a longer lookahead ahead of a shorter one that begins with the same character, a keyword ahead of a character class that can take it), the alternatives that push a helper of the compiler's are put back in the order its numbers record, and the others are written in the compiled order: the rule compiles back the same, and the spec compiled back can differ in the order of the alternates other rules build through it, in the numbers of the compiler's helpers and in the order of its tokens.",
-      "A left recursion that ran through another rule (a ::= b, b ::= a \"+\" | n) is written as the compiler rewrote it, with the leading reference that closed the cycle left in place, and compiles back to another spec, since the compiler now substitutes that reference.",
-      "GBNF starts from the rule named root: a spec whose start rule has another name is written with root ::= and that name first, as render_gbnf writes it, and compiles back with that rule added; a spec that has a rule named root that is not its start rule is refused.",
-      "Terminals are written in GBNF's forms, spelled as render_gbnf spells them: a literal as a string, a class as a bracket expression and [\\s\\S] as a dot, and a rule the compiler made a token of (plus ::= \"+\", referenced as plus) as that rule, after the others.",
-      "A rule the compiler made a token of, whose name is one the compiler could give its literal by itself (B ::= \"b\", or any name of capitals, digits and underscores where the literal holds a character past ASCII), cannot be told from that literal and is written as the literal: it compiles back with the token later in the token table, or under the name the literal gives it.",
-      "Repetitions are written in GBNF's forms, x*, x+, x?, x{m}, x{m,} and x{m,n}, with a postfix on a postfix (x*?) where a repetition is itself repeated.",
-      "An empty alternative is written as nothing between its bars; in a rule whose alternatives the compiler emits as its open alternates, where it puts the empty one last wherever it stood, it is written first, as llama.cpp's grammars write it.",
-      "A spec compiled from another notation compiles back under GBNF's own settings: the group tag on every alternate and GBNF's exact lexing are GBNF's, a case-insensitive literal (ABNF's default) is written as the two-case classes and strings that match exactly what it matches, an RFC 5234 core rule is written as a rule of its own, and an empty literal, which GBNF reads as nothing, as an empty string.",
-      "The tree builders every compiled grammar carries (@node$, @capture$, @bubble$ and @fold$, with their k settings) and its marks are not written, since the compiler makes them again from the rules: a spec whose builders or marks are others compiles back with the compiler's own, and recognises what it recognised.",
-      "A spec the render cannot write as GBNF is refused with TARGET_VALUE_UNREPRESENTABLE, naming what it met: an action (a value annotation's builders, a user action, the probe dispatcher of an optional prefix), a condition or a counter other than a repetition's, an error generator or an alternate modifier, a function reference where a rule or a count is due, a set of tokens at one place, a removal, a clear or the form that edits a rule already installed, a token no GBNF terminal matches (the engine's own TX, NR, ST and VL, a class whose flags change what it matches (no u on a class that is negated, reaches past U+FFFF or holds every code point, or u on one that holds a surrogate), a pattern that is neither one class nor an escaped literal, a case-insensitive literal holding a character past ASCII that may have cases: one of the Basic Multilingual Plane, or of a script past it that has them), a token set whose tokens are not the class its name gives, a rule with no alternate to open with, a sequence's step with more alternates than a step, a rule the compiler lifted to a token whose name another rule holds, a start that is not the start wrapper every grammar text compiles to (one open alternate that matches nothing and pushes a rule, closed by the end of the source alone), a rule name GBNF cannot spell, the empty name among them, a repetition bounded past what the compiler numbers, a repetition of no copies, whose item the spec does not keep, or a spec that gives its match tokens' order as a list of its own (Go's tokenOrder), whose rules' order, which ranks the tokens, is lost."
+      "Comments, blank lines and layout are not kept: each rule is written on one line, its alternatives between bars and its elements between spaces.",
+      "A string is written with the escapes GBNF and JSON share, \\x08 and \\x0C for the two GBNF does not have, and any other character as itself; a class's member is written as itself where it is printable ASCII and not one of the class's own marks, and as an escape otherwise: each reads back as the same element.",
+      "Repetitions are written in GBNF's forms, x*, x+, x?, x{m}, x{m,} and x{m,n}, after the element, the innermost first, so a repetition of a repetition is a postfix on a postfix (x*?).",
+      "GBNF starts from the rule named root: a grammar with no rule of that name, as one of ABNF or EBNF, whose start rule is its first, is written with root ::= and its first rule's name after the others, and reads back with that rule added.",
+      "A grammar of another notation is written as GBNF spells it: a case-insensitive literal (ABNF's quoted string) as its characters, each letter the class of its two cases and each other character a string of one, in a group where it has more than one, which matches what it matches; a character as a string of one, or, a surrogate, which no string holds, as a class of one; a range as a class of one range; and an RFC 5234 core rule the grammar references and does not define (ALPHA, DIGIT and the rest) as a rule of its own after the others, as ABNF's compiler adds it. Each reads back as what GBNF wrote, which the render writes again as the same text.",
+      "A grammar the render cannot write as GBNF is refused with TARGET_VALUE_UNREPRESENTABLE, naming the rule and what it met: prose, an incremental rule (=/), a name GBNF cannot spell (the empty name among them), an empty class, and a case-insensitive literal holding a character past ASCII. A tree that is not the schema's is refused the same way, naming what was met."
     ],
-    "whole": "A rule may be named before it is defined, and the spec is what the compiler makes of the whole grammar, so a document's tree is complete only at its end: it is read whole before anything is written."
+    "spec": {
+      "reads": "tree",
+      "writes": "tree",
+      "root": "object",
+      "schema": "grammar-spec",
+      "render": "alchemy/render-spec.alc",
+      "loss": [
+        "The grammar is written anew from its compiled spec: comments, blank lines and layout are not kept, and each rule is written on one line.",
+        "A rule is written as the compiler rewrote it: a reference that led an alternative is written back where the alternatives the compiler put in its place still stand together, each followed by one same tail, and is otherwise written as those alternatives; a left recursion is written as the repetition it became, and alternatives the compiler left-factored with their shared prefix written in each of them again.",
+        "Where the compiler reordered a rule's alternatives to tell them apart (a longer lookahead ahead of a shorter one that begins with the same character, a keyword ahead of a character class that can take it), the alternatives that push a helper of the compiler's are put back in the order its numbers record, and the others are written in the compiled order: the rule compiles back the same, and the spec compiled back can differ in the order of the alternates other rules build through it, in the numbers of the compiler's helpers and in the order of its tokens.",
+        "A left recursion that ran through another rule (a ::= b, b ::= a \"+\" | n) is written as the compiler rewrote it, with the leading reference that closed the cycle left in place, and compiles back to another spec, since the compiler now substitutes that reference.",
+        "GBNF starts from the rule named root: a spec whose start rule has another name is written with root ::= and that name first, as render_gbnf writes it, and compiles back with that rule added; a spec that has a rule named root that is not its start rule is refused.",
+        "Terminals are written in GBNF's forms, spelled as render_gbnf spells them: a literal as a string, a class as a bracket expression and [\\s\\S] as a dot, and a rule the compiler made a token of (plus ::= \"+\", referenced as plus) as that rule, after the others.",
+        "A rule the compiler made a token of, whose name is one the compiler could give its literal by itself (B ::= \"b\", or any name of capitals, digits and underscores where the literal holds a character past ASCII), cannot be told from that literal and is written as the literal: it compiles back with the token later in the token table, or under the name the literal gives it.",
+        "Repetitions are written in GBNF's forms, x*, x+, x?, x{m}, x{m,} and x{m,n}, with a postfix on a postfix (x*?) where a repetition is itself repeated.",
+        "An empty alternative is written as nothing between its bars; in a rule whose alternatives the compiler emits as its open alternates, where it puts the empty one last wherever it stood, it is written first, as llama.cpp's grammars write it.",
+        "A spec compiled from another notation compiles back under GBNF's own settings: the group tag on every alternate and GBNF's exact lexing are GBNF's, a case-insensitive literal (ABNF's default) is written as the two-case classes and strings that match exactly what it matches, an RFC 5234 core rule is written as a rule of its own, and an empty literal, which GBNF reads as nothing, as an empty string.",
+        "The tree builders every compiled grammar carries (@node$, @capture$, @bubble$ and @fold$, with their k settings) and its marks are not written, since the compiler makes them again from the rules: a spec whose builders or marks are others compiles back with the compiler's own, and recognises what it recognised.",
+        "A spec the render cannot write as GBNF is refused with TARGET_VALUE_UNREPRESENTABLE, naming what it met: an action (a value annotation's builders, a user action, the probe dispatcher of an optional prefix), a condition or a counter other than a repetition's, an error generator or an alternate modifier, a function reference where a rule or a count is due, a set of tokens at one place, a removal, a clear or the form that edits a rule already installed, a token no GBNF terminal matches (the engine's own TX, NR, ST and VL, a class whose flags change what it matches (no u on a class that is negated, reaches past U+FFFF or holds every code point, or u on one that holds a surrogate), a pattern that is neither one class nor an escaped literal, a case-insensitive literal holding a character past ASCII that may have cases: one of the Basic Multilingual Plane, or of a script past it that has them), a token set whose tokens are not the class its name gives, a rule with no alternate to open with, a sequence's step with more alternates than a step, a rule the compiler lifted to a token whose name another rule holds, a start that is not the start wrapper every grammar text compiles to (one open alternate that matches nothing and pushes a rule, closed by the end of the source alone), a rule name GBNF cannot spell, the empty name among them, a repetition bounded past what the compiler numbers, a repetition of no copies, whose item the spec does not keep, or a spec that gives its match tokens' order as a list of its own (Go's tokenOrder), whose rules' order, which ranks the tokens, is lost."
+      ]
+    }
   }
 }

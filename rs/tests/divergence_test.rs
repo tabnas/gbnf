@@ -4,9 +4,10 @@
 //
 // `DIVERGENCE.md` at the repository root records every input for which
 // this port answers differently from the canonical TypeScript. There is
-// no `test/spec` fixture register to carry them (this package declares
-// no error codes, and has no `test/spec` directory), so each entry is
-// pinned here instead.
+// no `test/spec` fixture register to carry them (the IR this package
+// compiles declares no error codes, and the one fixture in `test/spec`,
+// `tree.tsv`, holds the tree a host translates, which the runtimes read
+// alike), so each entry is pinned here instead.
 //
 // Every case asserts BOTH directions where a runtime boundary allows it:
 // the behaviour recorded, and the behaviour that would mean the entry

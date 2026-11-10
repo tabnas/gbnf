@@ -24,10 +24,12 @@ below is what those comparisons had to set aside, and why.
 
 ## Where the divergences are pinned
 
-There is no executable register in `test/spec`: this repository declares
-no error codes and has no `test/spec` directory, so no fixture row can
-carry a `rust` column (`AGENTS.md`, "Error codes"). The shared data
-under `test/` is the two committed corpora, which are graded directly.
+There is no executable register in `test/spec`: the one fixture there,
+`tree.tsv`, holds the tree a host translates, which the three runtimes
+read alike, and the IR this package compiles declares no error codes, so
+no fixture row carries a `rust` column (`AGENTS.md`, "Error codes"). The
+shared data the IR is graded on is the two committed corpora under
+`test/`.
 
 So each entry below is pinned by a named Rust test in
 [`rs/tests/divergence_test.rs`](rs/tests/divergence_test.rs), or, for
@@ -45,7 +47,7 @@ so a table that grows a row without growing a pin is visible:
 |---|---|
 | 1 | `an_unpaired_surrogate_escape_is_refused_by_name`, `a_surrogate_pair_is_the_character_it_names`, `a_surrogate_pair_inside_a_class_is_still_two_members`, and the `unrepresentable` arm of `rs/tests/oracle_test.rs` |
 | 2 | `a_span_after_an_astral_character_is_in_this_runtimes_units`, `an_ascii_span_is_the_same_number_in_both_runtimes`, and `the_column_the_engine_reports_counts_characters` in `rs/tests/oracle_test.rs` |
-| 4 | `the_nesting_cap_falls_exactly_where_the_shared_compiler_does`, `nesting_far_past_the_cap_is_a_diagnostic`, `the_nesting_cap_falls_where_the_recorded_table_says` |
+| 4 | `the_nesting_cap_falls_exactly_where_the_shared_compiler_does`, `nesting_far_past_the_cap_is_a_diagnostic`, `the_nesting_cap_falls_where_the_recorded_table_says`, and `nesting_past_the_group_cap_is_refused` in `rs/tests/tree_test.rs` |
 | 5 | `an_engine_message_quotes_a_whole_astral_character` |
 | 6 | `an_oversized_repetition_count_saturates` |
 | 7 | `TestDivergenceAClassIsNamedForItsRE2Spelling`, `TestDivergenceEveryClassIsEager` and `TestDivergenceALoopsExitGuardsAreInNameOrder` in `go/divergence_test.go`, one per open row, and `TestOracleAgreesWithTypeScript` in `go/oracle_test.go`, which compares the rest of the spec with each open row set aside by its own normalisation, and holds what rows 1 and 4 recorded, now closed, to TypeScript's |
@@ -96,6 +98,14 @@ would accept different strings.
 surrogate code point names no character, so a GBNF terminal that matches
 one matches nothing a well-formed document can contain. llama.cpp's own
 `parse_char` has the same hole and no better answer.
+
+The tree a host translates (`parseGbnfTree`, `ParseGbnfTree`,
+`parse_gbnf_tree`) does not diverge here: in every runtime a string's
+pair of escapes is the character it encodes, a half standing alone is
+refused with `gbnf_escape`, as an escape that names no character, and a
+class's members are code points, so `[\uD800]` is the member U+D800 and
+`[\uD83D\uDE00]` two members. `test/spec/tree.tsv` holds the three to
+it.
 
 ## 2. Source spans are recorded in this runtime's units
 
@@ -210,6 +220,12 @@ rather than copied.
 **Nobody writes this.** The deepest grammar in either committed corpus
 nests nowhere near either cap, llama.cpp's own parser has a comparable
 recursive shape, and llama.cpp does not stack postfix operators at all.
+
+The tree a host translates keeps the group cap in Rust: `parse_gbnf_tree`
+refuses 128 nested groups with `gbnf_group_depth`, where TypeScript and
+Go read them, since the tree nests once per group and its drop recurses.
+A run of postfix operators is a list in the tree, `repeat`, so the
+nesting cap has nothing to count there.
 
 ## 5. An engine message quotes an astral character differently
 

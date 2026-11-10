@@ -14,6 +14,7 @@ const {
   emitGrammarSpec, eliminateLeftRecursion,
   gbnfRules,
   GbnfParseError, GbnfCompileError, GbnfRenderError,
+  make, parseGbnfTree, gbnfTreeRules, translate,
 } = require('@tabnas/gbnf')
 ```
 
@@ -116,6 +117,56 @@ introspection and tooling.
 
 ---
 
+## The tree for translation
+
+A host that translates a grammar between notations reads a GBNF
+document as the schema `grammar-rules`, which `@tabnas/bnf` defines and
+the other grammar notations share: the grammar's rules as the text
+writes them, in source order, each `{ type: 'rule', name, alternatives
+}`, an alternative a list of elements, and an element an object whose
+`type` comes first and whose repetitions, `repeat`, come last.
+
+### `parseGbnfTree(src) => GbnfTree`
+
+Read GBNF source whole as the tree, each element as its type:
+
+- a string, a `literal` that matches exactly, its text the characters
+  its escapes name,
+- a class, a `class` of code points, `{ from, to }` each,
+- `.`, `any`, a tokenizer terminal, a `token`, and `( … )`, a `group`,
+- a run of postfix operators, the element's `repeat`, the innermost
+  first.
+
+The tree keeps no comment, holds a second definition of a name as a rule
+of its own, and needs no rule named `root`. For source the meta-grammar
+refuses, or that the tree has no room for, it throws `GbnfParseError`,
+whose `cause` is the engine's error with one of the codes `gbnf_escape`,
+`gbnf_class_range`, `gbnf_empty_class`, `gbnf_reversed_repetition`,
+`gbnf_count` and `gbnf_unclosed`, or the engine's own.
+
+### `make() => Tabnas`
+
+A fresh parser whose value is the tree: the parser a host streams a
+document through with the transducer part, `translate().transduce`,
+which makes the tree's events from its rule passes.
+
+### `gbnfTreeRules`
+
+The meta-grammar's rule table with the tree's actions: the alternates of
+`gbnfRules`, each action replaced.
+
+### `translate() => TranslationParts`
+
+The translation parts the manifest names, each `{ entry, source }`, and
+the manifest's text:
+
+- `transduce`, entry `gbnf-transduce`, the transducer part.
+- `render`, entry `gbnf-render`, which writes a tree as GBNF.
+- `spec`, entry `gbnf-render-spec`, which writes a compiled grammar spec
+  as GBNF.
+
+---
+
 ## Plugin
 
 ### `gbnf` (Plugin)
@@ -148,7 +199,8 @@ The source is not GBNF. Fields:
 
 Also raised by the terminal decoders: an unknown escape, a short hex
 escape, a code point above `U+10FFFF`, an empty character class, a
-descending range, an inverted repetition bound.
+descending range, an inverted repetition bound. `parseGbnfTree` raises
+it too, its `cause` carrying the code.
 
 ### `GbnfCompileError`
 
