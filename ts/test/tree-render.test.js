@@ -214,6 +214,9 @@ test('the render writes another notation\'s elements as GBNF spells them', { ski
   await writes(one({ type: 'literal', text: 'ab', caseSensitive: false }), 'a ::= ( [aA] [bB] )\nroot ::= a\n')
   await writes(one({ type: 'literal', text: 'a-1\n', caseSensitive: false }), 'a ::= ( [aA] "-" "1" "\\n" )\nroot ::= a\n')
   await writes(one({ type: 'literal', text: '1-2', caseSensitive: false }), 'a ::= "1-2"\nroot ::= a\n')
+  // A character past U+FFFF of no script with cases matches as it would
+  // without regard to case, so a string says the same.
+  await writes(one({ type: 'literal', text: '😀', caseSensitive: false }), 'a ::= "😀"\nroot ::= a\n')
   await writes(one(ref('ALPHA'), ref('DIGIT', [{ min: 1 }])),
     'a ::= ALPHA DIGIT+\nroot ::= a\nALPHA ::= [A-Za-z]\nDIGIT ::= [0-9]\n')
 })
@@ -231,6 +234,11 @@ test('the render refuses what GBNF cannot say, naming the rule', { skip }, async
     /the rule "a" holds the case-insensitive literal "é"/)
   await refuses(one({ type: 'literal', text: 'a😀', caseSensitive: false }),
     /the rule "a" holds the case-insensitive literal "a😀"/)
+  // Deseret has cases: U+10400 and U+10428 are one letter's two.
+  await refuses(one({ type: 'literal', text: '\u{10400}', caseSensitive: false }),
+    /the rule "a" holds the case-insensitive literal/)
+  await refuses(one(ref('a.b')), /the rule "a" references "a.b", a name GBNF cannot spell/)
+  await refuses(one(ref('')), /the rule "a" references the empty name/)
 })
 
 test('the render refuses a tree that is not the schema\'s', { skip }, async () => {

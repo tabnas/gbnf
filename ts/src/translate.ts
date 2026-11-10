@@ -66,7 +66,7 @@ const TRANSLATION: TranslationParts = Object.freeze({
       "Repetitions are written in GBNF's forms, x*, x+, x?, x{m}, x{m,} and x{m,n}, after the element, the innermost first, so a repetition of a repetition is a postfix on a postfix (x*?).",
       "GBNF starts from the rule named root: a grammar with no rule of that name, as one of ABNF or EBNF, whose start rule is its first, is written with root ::= and its first rule's name after the others, and reads back with that rule added.",
       "A grammar of another notation is written as GBNF spells it: a case-insensitive literal (ABNF's quoted string) as its characters, each letter the class of its two cases and each other character a string of one, in a group where it has more than one, which matches what it matches; a character as a string of one, or, a surrogate, which no string holds, as a class of one; a range as a class of one range; and an RFC 5234 core rule the grammar references and does not define (ALPHA, DIGIT and the rest) as a rule of its own after the others, as ABNF's compiler adds it. Each reads back as what GBNF wrote, which the render writes again as the same text.",
-      "A grammar the render cannot write as GBNF is refused with TARGET_VALUE_UNREPRESENTABLE, naming the rule and what it met: prose, an incremental rule (=/), a name GBNF cannot spell (the empty name among them), an empty class, and a case-insensitive literal holding a character past ASCII. A tree that is not the schema's is refused the same way, naming what was met."
+      "A grammar the render cannot write as GBNF is refused with TARGET_VALUE_UNREPRESENTABLE, naming the rule and what it met: prose, an incremental rule (=/), a name GBNF cannot spell (the empty name among them), an empty class, and a case-insensitive literal holding a character past ASCII beside a letter of ASCII, or one that may have cases (one of the Basic Multilingual Plane, or of a script past it that has them). A tree that is not the schema's is refused the same way, naming what was met."
     ],
     "spec": {
       "reads": "tree",
@@ -133,7 +133,8 @@ const TRANSLATION: TranslationParts = Object.freeze({
 ; an incremental rule (\`=/\`), a name GBNF cannot spell (a rule name is
 ; letters, digits, \`_\` and \`-\`), an empty class, and a case-insensitive
 ; literal holding a character past ASCII beside a letter of ASCII, or one
-; of the Basic Multilingual Plane, which may have cases. A tree that is
+; that may have cases (one of the Basic Multilingual Plane, or of a script
+; past it that has them). A tree that is
 ; not the schema's (a root that is no grammar, a
 ; node's type first nowhere, a member a node does not have, out of its
 ; place, missing or of the wrong kind) is refused the same way, naming
@@ -224,6 +225,15 @@ def gbnf-render-point [what n]
     case _ (gbnf-render-shape (string-join "" [what " is not a number"]))
 
 ; ---- GBNF's terminals
+
+; A reference: the name of a rule, as GBNF spells one.
+def gbnf-render-reference [rname name]
+  match name
+    case "" (gbnf-render-refuse (string-join "" ["the rule " (quoted rname) " references the empty name, which GBNF cannot spell"]))
+    case _
+      match (chars-within [[45 45] [48 57] [65 90] [95 95] [97 122]] name)
+        case true name
+        case false (gbnf-render-refuse (string-join "" ["the rule " (quoted rname) " references " (quoted name) ", a name GBNF cannot spell"]))
 
 ; A rule name GBNF can spell: letters, digits, \`_\` and \`-\`.
 def gbnf-render-name [name]
@@ -340,20 +350,26 @@ def gbnf-render-fold-char [c]
       case 0 (gbnf-render-string c)
       case _ (string-join "" ["[" (gbnf-render-at (gbnf-render-at pair 0) 0) (gbnf-render-at (gbnf-render-at pair 0) 1) "]"])
 
+; The characters a case-insensitive literal matches as it would without
+; regard to case, since they have none: ASCII but its letters, and the
+; characters past U+FFFF but those of the scripts that have cases
+; (Deseret, Osage, Vithkuqi, Old Hungarian, Garay, Warang Citi,
+; Medefaidrin, Adlam). A character of the Basic Multilingual Plane past
+; ASCII may have cases.
+def gbnf-render-caseless [[0 127] [65536 66559] [66640 66735] [66816 66927] [67008 68735] [68864 68927] [69008 71839] [71936 93759] [93856 125183] [125280 1114111]]
+
 ; A literal: a string where it matches exactly, or where nothing in it
-; has a case (no letter of ASCII, and no character past ASCII but one
-; past U+FFFF, as ABNF's render reads one); and a case-insensitive one
-; holding a letter of ASCII and nothing past ASCII as its characters, each
-; letter the class of its two cases and anything else a string of one, in
-; a group where it has more than one. GBNF matches a string exactly, so a
-; case-insensitive literal holding a character past ASCII beside a
-; letter, or one of the Basic Multilingual Plane, which may have cases, is
-; refused.
+; has a case; and a case-insensitive one holding a letter of ASCII and
+; nothing past ASCII as its characters, each letter the class of its two
+; cases and anything else a string of one, in a group where it has more
+; than one. GBNF matches a string exactly, so a case-insensitive literal
+; holding a character past ASCII beside a letter, or one that may have
+; cases, is refused.
 def gbnf-render-literal [rname text cs]
   match cs
     case true (gbnf-render-string text)
     case _
-      match [(gbnf-render-has-letter text) (chars-within [[0 127]] text) (chars-within [[0 127] [65536 1114111]] text)]
+      match [(gbnf-render-has-letter text) (chars-within [[0 127]] text) (chars-within gbnf-render-caseless text)]
         case [false a true] (gbnf-render-string text)
         case [true true b]
           let [chars (gbnf-render-chars gbnf-render-chars text [])]
@@ -397,7 +413,7 @@ def gbnf-render-element [rname pairs]
 ; An element's text before its repetitions.
 def gbnf-render-atom [rname type pairs]
   match type
-    case "reference" (gbnf-render-name (gbnf-render-pair "name" pairs))
+    case "reference" (gbnf-render-reference rname (gbnf-render-pair "name" pairs))
     case "literal" (gbnf-render-literal rname (gbnf-render-pair "text" pairs) (gbnf-render-pair "caseSensitive" pairs))
     case "char" (gbnf-render-char (gbnf-render-pair "value" pairs))
     case "range"
