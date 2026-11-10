@@ -54,7 +54,7 @@
     ".": "./dist/gbnf.js"
   },
   "peerDependencies": {
-    "@tabnas/bnf": ">=0.1.32",
+    "@tabnas/bnf": ">=0.1.33",
     "@tabnas/parser": ">=0.12.16"
   },
   "devDependencies": {

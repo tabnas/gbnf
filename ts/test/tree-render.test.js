@@ -131,20 +131,11 @@ function render (what, tree) {
   })
 }
 
-// GBNF starts from the rule named root: a grammar with none is written
-// with `root ::=` and its first rule's name after the others, and reads
-// back with that rule added (the manifest's loss).
-function withRoot (tree) {
-  if (0 === tree.rules.length || tree.rules.some((rule) => 'root' === rule.name)) return tree
-  const root = { type: 'reference', name: tree.rules[0].name }
-  return { ...tree, rules: [...tree.rules, { type: 'rule', name: 'root', alternatives: [[root]] }] }
-}
-
 async function roundTrip (src) {
   const tree = parseGbnfTree(src)
   const out = await render(`the round trip of ${brief(src)}`, tree)
   Assert.ok(undefined !== out.text, JSON.stringify(out))
-  Assert.equal(JSON.stringify(parseGbnfTree(out.text)), JSON.stringify(withRoot(tree)), out.text)
+  Assert.equal(JSON.stringify(parseGbnfTree(out.text)), JSON.stringify(tree), out.text)
   const again = await render(`the text again of ${brief(src)}`, parseGbnfTree(out.text))
   Assert.equal(again.text, out.text)
   return out.text
@@ -180,7 +171,14 @@ test('the render writes every fixture and corpus grammar back as its tree', { sk
   for (const name of Fs.readdirSync(corpus).filter((f) => f.endsWith('.gbnf'))) {
     sources.push(Fs.readFileSync(Path.join(corpus, name), 'utf8'))
   }
-  for (const src of sources) await roundTrip(src)
+  // GBNF starts from root, and a document of rules none of which is root
+  // is refused, as its start names a rule it does not define; one of no
+  // rules starts nowhere.
+  for (const src of sources) {
+    const rules = parseGbnfTree(src).rules
+    if (0 === rules.length || rules.some((rule) => 'root' === rule.name)) await roundTrip(src)
+    else await refuses(parseGbnfTree(src), /the grammar starts from the rule "root", which it does not define/)
+  }
 })
 
 test('the render writes a rule a line, its alternatives and elements spaced', { skip }, async () => {
@@ -190,10 +188,23 @@ test('the render writes a rule a line, its alternatives and elements spaced', { 
   Assert.equal(await roundTrip(''), '')
 })
 
-test('the render writes a grammar with no rule named root with one added', { skip }, async () => {
-  Assert.equal(await roundTrip('x ::= y\ny ::= "z"\n'), 'x ::= y\ny ::= "z"\nroot ::= x\n')
-  await writes({ type: 'grammar', rules: [{ type: 'rule', name: 'a', alternatives: [[]] },
-    { type: 'rule', name: 'root', alternatives: [[ref('a')]] }] }, 'a ::=\nroot ::= a\n')
+// GBNF starts from the rule named root, wherever the text defines it,
+// which its tree's start says; ABNF's and EBNF's trees have no start, and
+// start from their first rule.
+test('the render starts the grammar where its tree does', { skip }, async () => {
+  Assert.equal(await roundTrip('item ::= [a-z]+\nroot ::= item ("," item)*\n'),
+    'item ::= [a-z]+\nroot ::= item ( "," item )*\n')
+  await refuses(parseGbnfTree('x ::= y\ny ::= "z"\n'),
+    /the grammar starts from the rule "root", which it does not define/)
+  // A tree with no start starts from its first rule: `root ::=` names it
+  // where the grammar has no root, and a root after it is refused.
+  await writes({ type: 'grammar', rules: [{ type: 'rule', name: 'a', alternatives: [[]] }] },
+    'a ::=\nroot ::= a\n')
+  await writes({ type: 'grammar', rules: [{ type: 'rule', name: 'root', alternatives: [[ref('a')]] },
+    { type: 'rule', name: 'a', alternatives: [[]] }] }, 'root ::= a\na ::=\n')
+  await refuses({ type: 'grammar', rules: [{ type: 'rule', name: 'a', alternatives: [[]] },
+    { type: 'rule', name: 'root', alternatives: [[ref('a')]] }] },
+    /the grammar starts from the rule "a", and holds a rule named root after it/)
 })
 
 test('the render writes GBNF\'s terminals as GBNF spells them', { skip }, async () => {
@@ -223,6 +234,14 @@ test('the render writes another notation\'s elements as GBNF spells them', { ski
 
 test('the render refuses what GBNF cannot say, naming the rule', { skip }, async () => {
   await refuses(one({ type: 'prose', text: 'a b' }), /the rule "a" holds the prose "a b"/)
+  // ABNF's and EBNF's compilers read a reference to NR, ST, TX or VL the
+  // grammar does not define as the engine's own token, which GBNF has no
+  // form for; a grammar that defines one is written as it is.
+  await refuses(one(ref('NR')), /the rule "a" references NR, the engine's own number token, which the grammar does not define/)
+  await refuses({ type: 'grammar', rules: [{ type: 'rule', name: 'a', alternatives: [[ref('b')]] }, { type: 'rule', name: 'b', alternatives: [[ref('TX'), ref('ST')]] }] },
+    /the rule "b" references TX, the engine's own text token/)
+  await writes({ type: 'grammar', rules: [{ type: 'rule', name: 'a', alternatives: [[ref('VL')]] }, { type: 'rule', name: 'VL', alternatives: [[{ type: 'literal', text: 'v', caseSensitive: true }]] }] },
+    'a ::= VL\nVL ::= "v"\nroot ::= a\n')
   await refuses({ type: 'grammar', rules: [{ type: 'rule', name: 'a', incremental: true, alternatives: [[]] }] },
     /the rule "a" adds alternatives to an earlier rule/)
   await refuses({ type: 'grammar', rules: [{ type: 'rule', name: 'a.b', alternatives: [[]] }] },

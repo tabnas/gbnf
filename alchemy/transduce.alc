@@ -5,8 +5,10 @@
 ; (tabnas/bnf's docs/grammar-rules.md, and section 13.1 of alchemy's
 ; docs/streaming-plan.md), a grammar's rules as the text writes them, in
 ; source order, each an object whose `type` comes first and whose other
-; members follow in the order the schema lists them. It is hand-written
-; over the passes of `make()`, the parser whose value that tree is.
+; members follow in the order the schema lists them. GBNF starts from the
+; rule named root wherever the text defines it, so the grammar's `start`,
+; "root", comes before any rule. It is hand-written over the passes of
+; `make()`, the parser whose value that tree is.
 ;
 ; The passes. `gbnf` holds the grammar and `prod` a rule, a production
 ; replacing the one before it; `prod` reads its name and its `::=`, and
@@ -68,7 +70,7 @@ def gbnf-transduce-pushes [rule]
 
 def gbnf-transduce-open [rule]
   match (get :name rule)
-    case "gbnf" [object-start (key "type") (scalar "grammar") (key "rules") array-start]
+    case "gbnf" [object-start (key "type") (scalar "grammar") (key "start") (scalar "root") (key "rules") array-start]
     case "prod" [object-start (key "type") (scalar "rule") (key "name") (scalar (get :src (transduce-token 0 rule))) (key "alternatives") array-start]
     case "alts" []
     case "seq" [array-start]
@@ -100,7 +102,7 @@ def gbnf-transduce-step [started pass]
 ; A source that made no pass is the grammar of no rules.
 def gbnf-transduce-finish [started]
   match started
-    case false [object-start (key "type") (scalar "grammar") (key "rules") array-start array-end object-end]
+    case false [object-start (key "type") (scalar "grammar") (key "start") (scalar "root") (key "rules") array-start array-end object-end]
     case true []
 
 def gbnf-transduce [input]

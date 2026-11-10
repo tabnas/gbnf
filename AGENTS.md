@@ -272,10 +272,15 @@ the render only from a source of the same schema, or from a program that
 builds such a tree.
 
 ```text
-{ "type": "grammar", "rules": [
+{ "type": "grammar", "start": "root", "rules": [
   { "type": "rule", "name": "root",
     "alternatives": [ [ element, ... ], ... ] }, ... ] }
 ```
+
+GBNF starts from the rule named `root` wherever the text defines it, so
+the grammar's `start`, after its `type` and before its rules, is "root"
+in every GBNF tree, the schema's member for a notation whose start is
+not its first rule (tabnas/bnf 0.1.33).
 
 An element is an object whose first member names its type: `reference`
 (`name`), `literal` (`text`, the characters its escapes name, and
@@ -303,7 +308,9 @@ compiler does too, but the tree does not choose. Comments are not kept.
   `gbnf_count` (a count past 2^53 - 1) and `gbnf_unclosed`. A class's
   member is a code point, so a surrogate is one, and the two escapes of a
   pair are two members, as the IR reads them. The tree does not need a
-  `root`, which the IR's parse requires.
+  rule named `root`, which the IR's parse requires: its `start` names
+  one, and a render refuses a tree whose start names a rule it does not
+  define.
 - The part, [`alchemy/transduce.alc`](alchemy/transduce.alc)
   (`gbnf-transduce`, the manifest's `translate.transduce`), makes the
   tree's events from the rule passes of `make()`, a rule at a time, so
@@ -315,16 +322,27 @@ compiler does too, but the tree does not choose. Comments are not kept.
 - The render, [`alchemy/render.alc`](alchemy/render.alc) (`gbnf-render`),
   writes the tree as GBNF, a rule to a line, as each rule's events
   arrive. Its contract is the round trip: a GBNF document's tree,
-  written, reads back as that tree, and one with no rule named `root` as
-  that tree with `root ::= <its first rule>` after the others, which the
-  render adds, since GBNF starts from `root`. A tree of another notation
+  written, reads back as that tree. A GBNF document of rules none of
+  which is `root` is refused at its end with
+  TARGET_VALUE_UNREPRESENTABLE, naming the rule its start names, as every
+  render refuses a start the grammar does not define; one of no rules is
+  no text. A tree with no `start`, as ABNF's and EBNF's are, starts from
+  its first rule, so the render writes `root ::= <its first rule>` after
+  the others where it has no rule named `root`, and refuses one whose
+  rule named `root` is not its first, naming that first rule, since GBNF
+  would start from `root` instead. ABNF's and EBNF's renders, whose
+  notations start from their first rule, write a tree whose start is
+  another rule with that rule first, holding the text of the rules
+  before it until it has been written. A tree of another notation
   is written as GBNF spells it (a case-insensitive literal as the classes
   of its letters' two cases, a character as a string of one, a range as
   a class, an RFC 5234 core rule the grammar references as a rule of its
   own), and what GBNF cannot say is refused with
   TARGET_VALUE_UNREPRESENTABLE, naming the rule: prose, an incremental
-  rule (`=/`), a name GBNF cannot spell, an empty class, and the rest the
-  manifest's `loss` list names.
+  rule (`=/`), a name GBNF cannot spell, an empty class, a reference to
+  the engine's own NR, ST, TX or VL token the grammar does not define
+  (which ABNF's and EBNF's compilers read as that token), and the rest
+  the manifest's `loss` list names.
 
 Repetition is replacement here too: the rules of a grammar are a replace
 loop of `prod`, and the alternatives of a rule or a group and the

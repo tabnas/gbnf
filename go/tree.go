@@ -19,6 +19,9 @@ package gbnf
 // action does with it. Objects are *tabnas.OrderedMap, so that their
 // members keep the schema's order; numbers are float64.
 //
+// GBNF starts from the rule named root, wherever the text defines it, so
+// the grammar's start is "root", before any rule.
+//
 // The tree holds what the schema allows, so the parser refuses what it
 // cannot hold, each with a code of its own: an escape GBNF does not have,
 // one past U+10FFFF, or, in a string, half of a surrogate pair standing
@@ -248,7 +251,7 @@ func treeActs() *gbnfActs {
 		bound: map[string]bool{},
 		state: map[string]tabnas.StateAction{
 			"gbnf.bo": func(r *tabnas.Rule, _ *tabnas.Context) {
-				r.Node = treeObject("type", "grammar", "rules", []any{})
+				r.Node = treeObject("type", "grammar", "start", "root", "rules", []any{})
 			},
 			"prod.bc": func(r *tabnas.Rule, _ *tabnas.Context) {
 				alts, ok := listOf(r.Child)
@@ -396,5 +399,5 @@ func ParseGbnfTree(src string) (*tabnas.OrderedMap, error) {
 	}
 	// An empty source makes no rule pass, and the engine answers nothing
 	// for it: it is the grammar of no rules, as a source of comments is.
-	return treeObject("type", "grammar", "rules", []any{}), nil
+	return treeObject("type", "grammar", "start", "root", "rules", []any{}), nil
 }

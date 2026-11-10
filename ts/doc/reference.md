@@ -137,8 +137,12 @@ Read GBNF source whole as the tree, each element as its type:
 - a run of postfix operators, the element's `repeat`, the innermost
   first.
 
-The tree keeps no comment, holds a second definition of a name as a rule
-of its own, and needs no rule named `root`. For source the meta-grammar
+The tree's `start`, after its `type` and before its rules, is `root`,
+since GBNF starts from the rule named `root` wherever the text defines
+it. The tree keeps no comment, holds a second definition of a name as a
+rule of its own, and needs no rule named `root`, though a render refuses
+a tree whose start names a rule missing from it. For source the
+meta-grammar
 refuses, or that the tree has no room for, it throws `GbnfParseError`,
 whose `cause` is the engine's error with one of the codes `gbnf_escape`,
 `gbnf_class_range`, `gbnf_empty_class`, `gbnf_reversed_repetition`,

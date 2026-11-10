@@ -15,6 +15,9 @@
 //! it reads as its value by the action that reads it, since a part reads
 //! a token's value and never the work an action does with it.
 //!
+//! GBNF starts from the rule named root, wherever the text defines it, so
+//! the grammar's `start` is "root", before any rule.
+//!
 //! The tree holds what the schema allows, so the parser refuses what it
 //! cannot hold, each with a code of its own: an escape GBNF does not have,
 //! one past U+10FFFF, or, in a string, half of a surrogate pair standing
@@ -221,6 +224,7 @@ fn register_tree_refs(parser: &mut Tabnas) {
             rule,
             tree_object(vec![
                 ("type", Value::String("grammar".into())),
+                ("start", Value::String("root".into())),
                 ("rules", Value::array(Vec::new())),
             ]),
         );
@@ -433,6 +437,7 @@ pub fn parse_gbnf_tree(src: &str) -> Result<Value, GbnfParseError> {
     match parser.parse(src) {
         Ok(Value::Undefined) | Ok(Value::Null) => Ok(tree_object(vec![
             ("type", Value::String("grammar".into())),
+            ("start", Value::String("root".into())),
             ("rules", Value::array(Vec::new())),
         ])),
         Ok(tree) => Ok(tree),

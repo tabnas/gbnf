@@ -50,7 +50,7 @@ runtime can load (`ts/doc/known-gaps.md` §5).
 **The tree for translation.** `ParseGbnfTree` reads a document as the
 schema grammar-rules, the rules as the text writes them in source order,
 an `*tabnas.OrderedMap` whose members keep the order the schema gives
-them. `Make` builds the parser that yields that tree, and `Translate()`
+them, its `start` the rule GBNF starts from, `root`. `Make` builds the parser that yields that tree, and `Translate()`
 carries the transducer part, `Transduce`, which streams the tree from
 the rule passes of that parser, beside the render that writes it back as
 GBNF and `Spec`, the render of the grammar-spec route.

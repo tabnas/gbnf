@@ -21,7 +21,9 @@ const { test } = require('node:test')
 
 const { checkRules } = require('@tabnas/bnf')
 
-const { make, parseGbnfTree, gbnfTreeRules, gbnfRules } = require('..')
+const { Tabnas } = require('@tabnas/parser')
+
+const { gbnf: gbnfPlugin, make, parseGbnfTree, gbnfTreeRules, gbnfRules } = require('..')
 
 const ROOT = Path.resolve(__dirname, '..', '..')
 
@@ -138,3 +140,37 @@ for (const [what, doc] of repeated) {
     Assert.equal(depth(doc(N)), depth(doc(2)), what)
   })
 }
+
+
+// GBNF starts from the rule named root wherever the text defines it, and
+// the tree names it as its start. ABNF and EBNF start from their first
+// rule, so their renders write root first: tabnas/abnf's and
+// tabnas/ebnf's tree-render tests write this tree, and hold the grammars
+// they compile from the text to the samples this grammar recognises here.
+test('a grammar whose root comes last starts from root', () => {
+  const text = 'digit ::= [0-9]\nnum ::= digit+\nroot ::= num ("," num)*\n'
+  const ref = (name, repeat) => (repeat ? { type: 'reference', name, repeat } : { type: 'reference', name })
+  Assert.deepEqual(parseGbnfTree(text), {
+    type: 'grammar',
+    start: 'root',
+    rules: [
+      { type: 'rule', name: 'digit', alternatives: [[{ type: 'class', negated: false, members: [{ from: 48, to: 57 }] }]] },
+      { type: 'rule', name: 'num', alternatives: [[ref('digit', [{ min: 1 }])]] },
+      { type: 'rule', name: 'root', alternatives: [[ref('num'), { type: 'group', alternatives: [[{ type: 'literal', text: ',', caseSensitive: true }, ref('num')]], repeat: [{ min: 0 }] }]] },
+    ],
+  })
+  const accepted = ['1', '12', '1,2', '12,345,6']
+  const refused = ['', 'a', '1,', ',1', '1,,2', '1;2']
+  const tn = new Tabnas({ plugins: [gbnfPlugin] })
+  const recognised = [...accepted, ...refused].filter((sample) => {
+    const j = tn.make()
+    j.gbnf(text)
+    try {
+      j.parse(sample)
+      return true
+    } catch {
+      return false
+    }
+  })
+  Assert.deepEqual(recognised, accepted)
+})

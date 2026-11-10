@@ -162,6 +162,7 @@ use tabnas_gbnf::parse_gbnf_tree;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tree = parse_gbnf_tree("root ::= [a-z]+ | \"x\"?")?.to_json();
+    assert_eq!(tree["start"], "root");
     let rule = &tree["rules"][0];
     assert_eq!(rule["name"], "root");
     assert_eq!(rule["alternatives"][0][0]["type"], "class");

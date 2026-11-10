@@ -9,9 +9,13 @@
  *  passes of `make()`, and the render, alchemy/render.alc, writes it back
  *  as GBNF.
  *
- *    { "type": "grammar", "rules": [
+ *    { "type": "grammar", "start": "root", "rules": [
  *      { "type": "rule", "name": "root",
  *        "alternatives": [ [ element, ... ], ... ] }, ... ] }
+ *
+ *  GBNF starts from the rule named root, wherever the text defines it, so
+ *  the grammar's `start` is "root", before any rule; a target that starts
+ *  from its first rule writes that rule first.
  *
  *  The tree parser reads GBNF with the meta-grammar `gbnfRules` reads it
  *  with, its lexer and every alternate as they are, and actions of its own
@@ -68,7 +72,7 @@ import {
 type GbnfTreeRepeat = { min: number; max?: number }
 type GbnfTreeElement = { type: string; [member: string]: any; repeat?: GbnfTreeRepeat[] }
 type GbnfTreeRule = { type: 'rule'; name: string; alternatives: GbnfTreeElement[][] }
-type GbnfTree = { type: 'grammar'; rules: GbnfTreeRule[] }
+type GbnfTree = { type: 'grammar'; start: 'root'; rules: GbnfTreeRule[] }
 
 
 // The codes the tree parser refuses a source with, beside the engine's:
@@ -209,7 +213,7 @@ const TREE: Record<string, {
   close?: Record<string, Act>
 }> = {
   gbnf: {
-    bo: (r) => { r.node = { type: 'grammar', rules: [] } },
+    bo: (r) => { r.node = { type: 'grammar', start: 'root', rules: [] } },
   },
 
   prod: {
@@ -343,7 +347,7 @@ function parseGbnfTree(src: string): GbnfTree {
   try {
     // An empty source makes no rule pass, and the engine answers nothing
     // for it: it is the grammar of no rules, as a source of comments is.
-    return (_treeParser.parse(src) ?? { type: 'grammar', rules: [] }) as GbnfTree
+    return (_treeParser.parse(src) ?? { type: 'grammar', start: 'root', rules: [] }) as GbnfTree
   } catch (e: any) {
     const line = e?.lineNumber ?? e?.row
     const column = e?.columnNumber ?? e?.col
