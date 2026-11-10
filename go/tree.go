@@ -470,6 +470,14 @@ func run(window string, at int, within func(byte) bool) (bool, int) {
 // until the byte that decides where the token ends lies inside it (reach)
 // or the source has ended, so that every matcher after it sees what the
 // whole text shows it. A whole text is all read.
+//
+// The cut it guards is the meta-grammar's own: #TOK's expression fails on
+// `<|end|>` when the window ends before its `>`, and no other matcher takes
+// `<`, so the parse refuses it; a string's, a class's or a postfix run's
+// expression likewise settles for what the window shows. An expression
+// cannot say that it wanted more text, so the engine, which cuts a token
+// again only after a matcher read to the window's end (tabnas/parser#326),
+// cannot know to: this matcher is the fix, not a workaround.
 func reachMatcher(reach func(string) (bool, int)) *tabnas.MatchSpec {
 	return &tabnas.MatchSpec{
 		Order: 900000,
