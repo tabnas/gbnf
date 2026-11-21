@@ -312,7 +312,7 @@ required, and v0.1.29 gave the same 219 answers. Rows 1 and 4 have since
 closed (below): they are gone from the table, and the other rows keep
 their numbers, which the tests and other repositories cite.
 
-Until this port's IR carried `HasCaseSens` (tabnas/alchemy-cli#22,
+Until this port's IR carried `HasCaseSens` (tabnas/dmog#22,
 registered there as `readerDefects["gbnf"]`), 102 of the 186 also
 compiled a literal holding a letter as a case-folding match token
 (`root ::= "b"` as `@~/^b/i`), and accepted `B` where TypeScript and Rust
