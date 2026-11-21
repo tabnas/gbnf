@@ -227,7 +227,7 @@ examples, and quietly accepts `TRUE` for `"true"`. Asserted twice in
 the flag as two fields, `CaseSensitive` and `HasCaseSens`, and the
 shared compiler reads the first only where the second says it was set:
 setting `CaseSensitive` alone IS dropping the flag, which is how the Go
-port accepted `B` for `"b"` until tabnas/alchemy-cli#22 found it.
+port accepted `B` for `"b"` until tabnas/dmog#22 found it.
 `TestALiteralIsCaseSensitive` in `go/gbnf_test.go` asserts it on the IR,
 the emitted spec and a parse, and `go/oracle_test.go` holds every
 fixed token of the corpus to TypeScript's, by name and text.
@@ -443,7 +443,7 @@ written, as the plan's declared subset says (an action or a mark is not
 written): the compiler makes them again from the rules, and a loss
 sentence says so.
 
-Measured with the `alchemy` command (alchemy-cli) over every grammar the
+Measured with the `alchemy` command (alchemy-cli, now `dmog`) over every grammar the
 repository holds: the 8 of `test/corpus/`, the 77 of `test/live/` and the
 222 sources of `rs/tests/oracle/gbnf-oracle.json`, 219 distinct. 186
 compile (the oracle holds the other 33 because the front end refuses

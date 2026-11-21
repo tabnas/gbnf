@@ -51,7 +51,7 @@ func TestParsesRuleIntoProduction(t *testing.T) {
 // shared compiler reads CaseSensitive only where HasCaseSens says it was
 // set: this port set CaseSensitive alone, so every literal holding a letter
 // compiled as RFC 5234's case-insensitive default, the match token
-// `@~/^b/i`, and accepted "B" (alchemy-cli registers it as
+// `@~/^b/i`, and accepted "B" (dmog registers it as
 // readerDefects["gbnf"]). TestOracleAgreesWithTypeScript holds every
 // literal of the corpus to the same.
 func TestALiteralIsCaseSensitive(t *testing.T) {
